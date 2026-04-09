@@ -1,0 +1,129 @@
+:root {
+  color-scheme: light;
+  font-family: "Segoe UI", "PingFang SC", sans-serif;
+  background: #f5f7fb;
+  color: #122033;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background:
+    radial-gradient(circle at top left, rgba(50, 115, 220, 0.14), transparent 28%),
+    linear-gradient(180deg, #f7f9fc 0%, #eef3fb 100%);
+}
+
+#app {
+  min-height: 100vh;
+}
+
+.layout-shell {
+  min-height: 100vh;
+}
+
+.sidebar {
+  background: #10233d;
+  color: #fff;
+  padding: 18px 0;
+}
+
+.brand {
+  padding: 0 20px 20px;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.nav-menu {
+  border-right: 0;
+  background: transparent;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: rgba(255, 255, 255, 0.72);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid rgba(16, 35, 61, 0.08);
+}
+
+.topbar h1 {
+  margin: 0;
+  font-size: 24px;
+}
+
+.topbar p {
+  margin: 4px 0 0;
+  color: #64748b;
+}
+
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.active-connection {
+  color: #334155;
+  font-size: 14px;
+  white-space: nowrap;
+}
+
+.page-body {
+  padding: 20px;
+}
+
+.page-grid,
+.split-layout {
+  display: grid;
+  gap: 16px;
+}
+
+.split-layout {
+  grid-template-columns: 420px 1fr;
+  align-items: start;
+}
+
+.metric-card {
+  padding: 18px;
+  border-radius: 16px;
+  background: linear-gradient(135deg, #132f4c 0%, #245c8a 100%);
+  color: #fff;
+  box-shadow: 0 14px 40px rgba(19, 47, 76, 0.15);
+}
+
+.metric-card span {
+  display: block;
+  font-size: 13px;
+  opacity: 0.86;
+}
+
+.metric-card strong {
+  display: block;
+  margin-top: 10px;
+  font-size: 28px;
+}
+
+.chart-panel {
+  height: 360px;
+}
+
+.card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.mb-16 {
+  margin-bottom: 16px;
+}
+
+@media (max-width: 1200px) {
+  .split-layout {
+    grid-template-columns: 1fr;
+  }
+}

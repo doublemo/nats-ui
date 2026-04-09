@@ -719,3 +719,7 @@ MigrationBackup/
 .DS_Store
 .gocache/
 data/
+frontend/dist/
+desktop/bin/*
+!desktop/bin/.gitkeep
+release/

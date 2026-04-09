@@ -75,7 +75,7 @@ onBeforeUnmount(() => {
       </el-menu>
     </el-aside>
 
-    <el-container>
+    <el-container class="content-shell">
       <el-header class="topbar">
         <div class="topbar-title">
           <el-button circle plain class="collapse-btn" @click="collapsed = !collapsed">

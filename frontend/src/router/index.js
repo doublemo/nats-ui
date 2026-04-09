@@ -1,4 +1,4 @@
-import { createRouter, createWebHistory } from 'vue-router'
+import { createRouter, createWebHashHistory, createWebHistory } from 'vue-router'
 import Dashboard from '../views/Dashboard.vue'
 import JetStreamView from '../views/JetStreamView.vue'
 import KVManager from '../views/KVManager.vue'
@@ -13,6 +13,15 @@ const routes = [
 ]
 
 export default createRouter({
-  history: createWebHistory(),
+  history: resolveHistory(),
   routes,
 })
+
+function resolveHistory() {
+  if (typeof window !== 'undefined') {
+    if (window.__NATS_UI_DESKTOP__?.isElectron || window.location.protocol === 'file:') {
+      return createWebHashHistory()
+    }
+  }
+  return createWebHistory()
+}

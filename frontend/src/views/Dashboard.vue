@@ -32,6 +32,7 @@ const overview = ref({
   summary: {},
   traffic: {},
   connections: { items: [] },
+  warnings: [],
 })
 const loading = ref(false)
 const error = ref('')
@@ -203,6 +204,14 @@ watch(
 <template>
   <div class="page-grid">
     <el-alert v-if="error" :title="error" type="error" show-icon class="mb-16" />
+    <el-alert
+      v-else-if="overview.warnings?.length"
+      :title="overview.warnings.join('；')"
+      type="warning"
+      show-icon
+      :closable="false"
+      class="mb-16"
+    />
 
     <el-card shadow="never">
       <template #header>
@@ -272,7 +281,7 @@ watch(
       <template #header>
         <span>集群节点状态</span>
       </template>
-      <el-table :data="overview.nodes" stripe>
+      <el-table :data="overview.nodes || []" stripe empty-text="暂无节点监控数据">
         <el-table-column prop="name" label="节点" min-width="120" />
         <el-table-column prop="host" label="Host" min-width="120" />
         <el-table-column prop="version" label="Version" width="120" />
@@ -295,6 +304,7 @@ watch(
             <el-tag :type="row.status === 'healthy' ? 'success' : 'danger'">{{ row.status }}</el-tag>
           </template>
         </el-table-column>
+        <el-table-column prop="lastError" label="错误信息" min-width="320" show-overflow-tooltip />
       </el-table>
     </el-card>
 
@@ -302,7 +312,7 @@ watch(
       <template #header>
         <span>连接明细</span>
       </template>
-      <el-table :data="overview.connections.items" stripe>
+      <el-table :data="overview.connections.items || []" stripe empty-text="暂无连接监控数据">
         <el-table-column prop="cid" label="CID" width="90" />
         <el-table-column prop="name" label="客户端" min-width="160" />
         <el-table-column prop="ip" label="IP" width="140" />

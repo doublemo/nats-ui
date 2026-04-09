@@ -30,10 +30,12 @@ func NewNATSService(manager *ConnectionManager) *NATSService {
 }
 
 func (s *NATSService) GetClusterOverview(ctx context.Context, connectionID string) (*models.ClusterOverview, error) {
-	config, _, err := s.manager.Resolve(connectionID)
+	config, client, err := s.manager.Resolve(connectionID)
 	if err != nil {
 		return nil, err
 	}
+
+	monitorEndpoints := effectiveMonitorEndpoints(config, client.connectedURL)
 
 	type result struct {
 		varz  varzResponse
@@ -41,10 +43,10 @@ func (s *NATSService) GetClusterOverview(ctx context.Context, connectionID strin
 		err   error
 	}
 
-	results := make([]result, len(config.MonitorEndpoints))
+	results := make([]result, len(monitorEndpoints))
 	var wg sync.WaitGroup
 
-	for idx, endpoint := range config.MonitorEndpoints {
+	for idx, endpoint := range monitorEndpoints {
 		wg.Add(1)
 		go func(i int, base string) {
 			defer wg.Done()
@@ -67,13 +69,24 @@ func (s *NATSService) GetClusterOverview(ctx context.Context, connectionID strin
 	wg.Wait()
 
 	overview := &models.ClusterOverview{
-		NodeCount: len(config.MonitorEndpoints),
-		Nodes:     make([]models.ClusterNode, 0, len(config.MonitorEndpoints)),
+		NodeCount: len(monitorEndpoints),
+		Nodes:     make([]models.ClusterNode, 0, len(monitorEndpoints)),
+		Connections: models.ConnectionDetail{
+			Items: make([]models.ConnRecord, 0),
+		},
+		Warnings: make([]string, 0),
 	}
 
-	for _, item := range results {
+	for idx, item := range results {
 		if item.err != nil {
 			overview.Summary.UnhealthyNodes++
+			overview.Nodes = append(overview.Nodes, models.ClusterNode{
+				Name:      monitorEndpointLabel(monitorEndpoints[idx]),
+				Host:      monitorEndpointHost(monitorEndpoints[idx]),
+				Status:    "unhealthy",
+				LastError: item.err.Error(),
+			})
+			overview.Warnings = append(overview.Warnings, fmt.Sprintf("%s: %v", monitorEndpoints[idx], item.err))
 			continue
 		}
 
@@ -124,6 +137,9 @@ func (s *NATSService) GetClusterOverview(ctx context.Context, connectionID strin
 	}
 
 	overview.Summary.UnhealthyNodes = overview.NodeCount - overview.Summary.HealthyNodes
+	if len(overview.Warnings) == 0 {
+		overview.Warnings = nil
+	}
 	return overview, nil
 }
 
@@ -591,4 +607,27 @@ func (s *NATSService) fetchJSON(ctx context.Context, endpoint string, out interf
 	}
 
 	return json.NewDecoder(resp.Body).Decode(out)
+}
+
+func monitorEndpointHost(endpoint string) string {
+	u, err := url.Parse(endpoint)
+	if err != nil {
+		return endpoint
+	}
+	host := u.Hostname()
+	if host == "" {
+		return endpoint
+	}
+	return host
+}
+
+func monitorEndpointLabel(endpoint string) string {
+	u, err := url.Parse(endpoint)
+	if err != nil {
+		return endpoint
+	}
+	if host := u.Host; host != "" {
+		return host
+	}
+	return endpoint
 }

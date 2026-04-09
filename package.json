@@ -1,0 +1,71 @@
+{
+  "name": "nats-ui-desktop",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Desktop wrapper for NATS UI",
+  "main": "desktop/main.cjs",
+  "scripts": {
+    "desktop:build:frontend": "npm --prefix frontend run build",
+    "desktop:build:backend": "node desktop/scripts/build-backend.mjs",
+    "desktop:build:backend:all": "node desktop/scripts/build-backend.mjs --all",
+    "desktop:start": "npm run desktop:build:frontend && npm run desktop:build:backend && electron .",
+    "desktop:pack": "npm run desktop:build:frontend && npm run desktop:build:backend && electron-builder --dir",
+    "desktop:dist": "npm run desktop:build:frontend && npm run desktop:build:backend && electron-builder",
+    "desktop:dist:win": "npm run desktop:build:frontend && node desktop/scripts/build-backend.mjs --target win32:x64 && electron-builder --win nsis portable",
+    "desktop:dist:mac": "npm run desktop:build:frontend && node desktop/scripts/build-backend.mjs --target darwin:x64 --target darwin:arm64 && electron-builder --mac dmg zip",
+    "desktop:dist:linux": "npm run desktop:build:frontend && node desktop/scripts/build-backend.mjs --target linux:x64 --target linux:arm64 && electron-builder --linux AppImage deb tar.gz"
+  },
+  "devDependencies": {
+    "electron": "^31.0.0",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "com.doublemo.nats-ui",
+    "productName": "NATS UI",
+    "asar": true,
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "desktop/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "frontend/dist",
+        "to": "frontend/dist",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "desktop/bin",
+        "to": "bin",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ]
+    },
+    "mac": {
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "category": "public.app-category.developer-tools"
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb",
+        "tar.gz"
+      ],
+      "category": "Development"
+    }
+  }
+}

@@ -15,6 +15,7 @@ type ClusterOverview struct {
 	Summary     ClusterSummary   `json:"summary"`
 	Traffic     ClusterTraffic   `json:"traffic"`
 	Connections ConnectionDetail `json:"connections"`
+	Warnings    []string         `json:"warnings,omitempty"`
 }
 
 type ClusterNode struct {
@@ -31,6 +32,7 @@ type ClusterNode struct {
 	OutBytes      int64   `json:"outBytes"`
 	SlowConsumers int64   `json:"slowConsumers"`
 	Status        string  `json:"status"`
+	LastError     string  `json:"lastError,omitempty"`
 }
 
 type ClusterSummary struct {

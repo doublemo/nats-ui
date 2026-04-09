@@ -638,21 +638,47 @@ func (m *ConnectionManager) Probe(ctx context.Context, req models.ConnectionUpse
 }
 
 func (m *ConnectionManager) DiscoverMonitorEndpoints(req models.ConnectionDiscoverRequest) models.ConnectionDiscoverResult {
-	endpoints := make([]string, 0, len(req.NATSURLs))
+	return models.ConnectionDiscoverResult{
+		MonitorEndpoints: deriveMonitorEndpoints(req.NATSURLs),
+		Method:           "host-match-plus-4000-port",
+	}
+}
+
+func effectiveMonitorEndpoints(config models.ConnectionConfig, connectedURL string) []string {
+	if len(config.MonitorEndpoints) > 0 {
+		return compactStrings(config.MonitorEndpoints)
+	}
+
+	candidates := make([]string, 0, len(config.NATSURLs)+1)
+	if strings.TrimSpace(connectedURL) != "" {
+		candidates = append(candidates, connectedURL)
+	}
+	candidates = append(candidates, config.NATSURLs...)
+	return deriveMonitorEndpoints(candidates)
+}
+
+func deriveMonitorEndpoints(natsURLs []string) []string {
+	endpoints := make([]string, 0, len(natsURLs))
 	seen := make(map[string]struct{})
-	for _, raw := range compactStrings(req.NATSURLs) {
-		u, err := url.Parse(raw)
+
+	for _, raw := range compactStrings(natsURLs) {
+		u, err := parseServerURL(raw)
 		if err != nil {
 			continue
 		}
+
 		host := u.Hostname()
-		port := u.Port()
+		if host == "" {
+			continue
+		}
+
 		monitorPort := "8222"
-		if port != "" {
+		if port := u.Port(); port != "" {
 			if parsedPort, err := strconv.Atoi(port); err == nil {
 				monitorPort = strconv.Itoa(parsedPort + 4000)
 			}
 		}
+
 		endpoint := fmt.Sprintf("http://%s:%s", host, monitorPort)
 		if _, ok := seen[endpoint]; ok {
 			continue
@@ -660,9 +686,27 @@ func (m *ConnectionManager) DiscoverMonitorEndpoints(req models.ConnectionDiscov
 		seen[endpoint] = struct{}{}
 		endpoints = append(endpoints, endpoint)
 	}
-	return models.ConnectionDiscoverResult{
-		MonitorEndpoints: endpoints,
-		Method:           "host-match-plus-4000-port",
+
+	return endpoints
+}
+
+func parseServerURL(raw string) (*url.URL, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil, errors.New("empty server url")
+	}
+	if !strings.Contains(raw, "://") {
+		raw = "nats://" + raw
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return nil, err
+	}
+	switch strings.ToLower(parsed.Scheme) {
+	case "nats", "tls", "ws", "wss":
+		return parsed, nil
+	default:
+		return nil, fmt.Errorf("unsupported server scheme: %s", parsed.Scheme)
 	}
 }
 

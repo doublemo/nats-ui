@@ -2,9 +2,20 @@ import axios from 'axios'
 
 const ACTIVE_CONNECTION_KEY = 'nats-ui-active-connection'
 const CONNECTION_EVENT = 'nats-ui-connection-changed'
+const API_BASE_URL = resolveAPIBaseURL()
+
+function resolveAPIBaseURL() {
+  if (typeof window !== 'undefined') {
+    const desktopBaseURL = window.__NATS_UI_DESKTOP__?.apiBaseUrl
+    if (desktopBaseURL) {
+      return desktopBaseURL
+    }
+  }
+  return import.meta.env.VITE_API_BASE_URL || '/api/v1'
+}
 
 const http = axios.create({
-  baseURL: '/api/v1',
+  baseURL: API_BASE_URL,
   timeout: 8000,
 })
 

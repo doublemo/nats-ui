@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -23,8 +25,12 @@ var (
 )
 
 type clientBundle struct {
-	nc *nats.Conn
-	js nats.JetStreamContext
+	nc            *nats.Conn
+	js            nats.JetStreamContext
+	lastStatus    string
+	connectedURL  string
+	lastError     string
+	lastCheckedAt time.Time
 }
 
 type connectionStoreFile struct {
@@ -34,6 +40,7 @@ type connectionStoreFile struct {
 
 type ConnectionManager struct {
 	cfg     config.Config
+	secrets *SecretStore
 	mu      sync.RWMutex
 	active  string
 	items   map[string]models.ConnectionConfig
@@ -41,8 +48,13 @@ type ConnectionManager struct {
 }
 
 func NewConnectionManager(cfg config.Config) (*ConnectionManager, error) {
+	secrets, err := NewSecretStore(cfg)
+	if err != nil {
+		return nil, err
+	}
 	manager := &ConnectionManager{
 		cfg:     cfg,
+		secrets: secrets,
 		items:   make(map[string]models.ConnectionConfig),
 		clients: make(map[string]*clientBundle),
 	}
@@ -83,6 +95,32 @@ func (m *ConnectionManager) load() error {
 	for _, item := range payload.Items {
 		item.NATSURLs = compactStrings(item.NATSURLs)
 		item.MonitorEndpoints = compactStrings(item.MonitorEndpoints)
+		item.Tags = compactStrings(item.Tags)
+		item.Group = strings.TrimSpace(item.Group)
+		if item.PasswordCipher == "" && item.Password != "" {
+			item.PasswordCipher, err = m.secrets.Encrypt(item.Password)
+			if err != nil {
+				return err
+			}
+		}
+		if item.TokenCipher == "" && item.Token != "" {
+			item.TokenCipher, err = m.secrets.Encrypt(item.Token)
+			if err != nil {
+				return err
+			}
+		}
+		if item.PasswordCipher != "" {
+			item.Password, err = m.secrets.Decrypt(item.PasswordCipher)
+			if err != nil {
+				return err
+			}
+		}
+		if item.TokenCipher != "" {
+			item.Token, err = m.secrets.Decrypt(item.TokenCipher)
+			if err != nil {
+				return err
+			}
+		}
 		if item.ID == "" || len(item.NATSURLs) == 0 {
 			continue
 		}
@@ -108,7 +146,19 @@ func (m *ConnectionManager) load() error {
 func (m *ConnectionManager) saveLocked() error {
 	items := make([]models.ConnectionConfig, 0, len(m.items))
 	for _, item := range m.items {
-		items = append(items, item)
+		saved := item
+		saved.Password = ""
+		saved.Token = ""
+		var err error
+		saved.PasswordCipher, err = m.secrets.Encrypt(item.Password)
+		if err != nil {
+			return err
+		}
+		saved.TokenCipher, err = m.secrets.Encrypt(item.Token)
+		if err != nil {
+			return err
+		}
+		items = append(items, saved)
 	}
 	slices.SortFunc(items, func(a, b models.ConnectionConfig) int {
 		return strings.Compare(a.Name+a.ID, b.Name+b.ID)
@@ -138,12 +188,29 @@ func (m *ConnectionManager) List() []models.ConnectionInfo {
 	items := make([]models.ConnectionInfo, 0, len(m.items))
 	for _, item := range m.items {
 		info := models.ConnectionInfo{
-			ConnectionConfig: item,
+			ID:               item.ID,
+			Name:             item.Name,
+			Group:            item.Group,
+			Tags:             append([]string(nil), item.Tags...),
+			NATSURLs:         append([]string(nil), item.NATSURLs...),
+			MonitorEndpoints: append([]string(nil), item.MonitorEndpoints...),
+			Username:         item.Username,
+			HasPassword:      item.Password != "",
+			HasToken:         item.Token != "",
 			IsActive:         item.ID == m.active,
 		}
-		if client, ok := m.clients[item.ID]; ok && client.nc != nil {
-			info.Status = client.nc.Status().String()
-			info.ConnectedURL = client.nc.ConnectedUrl()
+		if client, ok := m.clients[item.ID]; ok && client != nil {
+			if client.nc != nil {
+				info.Status = client.nc.Status().String()
+				info.ConnectedURL = client.nc.ConnectedUrl()
+			} else {
+				info.Status = client.lastStatus
+				info.ConnectedURL = client.connectedURL
+			}
+			info.LastError = client.lastError
+			if !client.lastCheckedAt.IsZero() {
+				info.LastCheckedAt = client.lastCheckedAt.Format(time.RFC3339)
+			}
 		}
 		items = append(items, info)
 	}
@@ -151,6 +218,62 @@ func (m *ConnectionManager) List() []models.ConnectionInfo {
 		return strings.Compare(a.Name+a.ID, b.Name+b.ID)
 	})
 	return items
+}
+
+func (m *ConnectionManager) ListPaged(page, pageSize int, keyword, group, tag, status string) models.ConnectionListResponse {
+	items := m.List()
+	keyword = strings.ToLower(strings.TrimSpace(keyword))
+	group = strings.TrimSpace(group)
+	tag = strings.TrimSpace(tag)
+	status = strings.TrimSpace(status)
+
+	filtered := make([]models.ConnectionInfo, 0, len(items))
+	for _, item := range items {
+		displayStatus := item.Status
+		if displayStatus == "" {
+			displayStatus = "未检测"
+		}
+		if item.IsActive {
+			displayStatus = "当前连接"
+		}
+		if group != "" && (item.Group != group && !(group == "未分组" && item.Group == "")) {
+			continue
+		}
+		if tag != "" && !slices.Contains(item.Tags, tag) {
+			continue
+		}
+		if status != "" && displayStatus != status {
+			continue
+		}
+		if keyword != "" {
+			searchText := strings.ToLower(strings.Join(append([]string{
+				item.Name,
+				item.Group,
+				item.Username,
+				item.ConnectedURL,
+				item.Status,
+				item.LastError,
+			}, append(append(item.Tags, item.NATSURLs...), item.MonitorEndpoints...)...), " "))
+			if !strings.Contains(searchText, keyword) {
+				continue
+			}
+		}
+		filtered = append(filtered, item)
+	}
+
+	page, pageSize = normalizeConnectionPagination(page, pageSize)
+	total := len(filtered)
+	start, end := connectionPaginateBounds(total, page, pageSize)
+
+	return models.ConnectionListResponse{
+		ActiveID: m.ActiveID(),
+		Items:    filtered[start:end],
+		Pagination: models.Pagination{
+			Page:     page,
+			PageSize: pageSize,
+			Total:    total,
+		},
+	}
 }
 
 func (m *ConnectionManager) ActiveID() string {
@@ -166,6 +289,8 @@ func (m *ConnectionManager) Add(req models.ConnectionUpsertRequest) (models.Conn
 	item := models.ConnectionConfig{
 		ID:               generateConnectionID(req.Name),
 		Name:             strings.TrimSpace(req.Name),
+		Group:            strings.TrimSpace(req.Group),
+		Tags:             compactStrings(req.Tags),
 		NATSURLs:         compactStrings(req.NATSURLs),
 		MonitorEndpoints: compactStrings(req.MonitorEndpoints),
 		Username:         strings.TrimSpace(req.Username),
@@ -189,6 +314,16 @@ func (m *ConnectionManager) Add(req models.ConnectionUpsertRequest) (models.Conn
 	return item, nil
 }
 
+func (m *ConnectionManager) findByNameLocked(name string) (models.ConnectionConfig, bool) {
+	name = strings.TrimSpace(name)
+	for _, item := range m.items {
+		if strings.EqualFold(strings.TrimSpace(item.Name), name) {
+			return item, true
+		}
+	}
+	return models.ConnectionConfig{}, false
+}
+
 func (m *ConnectionManager) Update(id string, req models.ConnectionUpsertRequest) (models.ConnectionConfig, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -199,17 +334,25 @@ func (m *ConnectionManager) Update(id string, req models.ConnectionUpsertRequest
 	}
 
 	current.Name = strings.TrimSpace(req.Name)
+	current.Group = strings.TrimSpace(req.Group)
+	current.Tags = compactStrings(req.Tags)
 	current.NATSURLs = compactStrings(req.NATSURLs)
 	current.MonitorEndpoints = compactStrings(req.MonitorEndpoints)
 	current.Username = strings.TrimSpace(req.Username)
-	current.Password = req.Password
-	current.Token = strings.TrimSpace(req.Token)
+	if req.Password != "" {
+		current.Password = req.Password
+	}
+	if req.Token != "" {
+		current.Token = strings.TrimSpace(req.Token)
+	}
 	if current.Name == "" || len(current.NATSURLs) == 0 {
 		return models.ConnectionConfig{}, errors.New("name and natsUrls are required")
 	}
 
 	if client, ok := m.clients[id]; ok {
-		client.nc.Close()
+		if client.nc != nil {
+			client.nc.Close()
+		}
 		delete(m.clients, id)
 	}
 
@@ -231,7 +374,9 @@ func (m *ConnectionManager) Delete(id string) error {
 		return ErrLastConnection
 	}
 	if client, ok := m.clients[id]; ok {
-		client.nc.Close()
+		if client.nc != nil {
+			client.nc.Close()
+		}
 		delete(m.clients, id)
 	}
 	delete(m.items, id)
@@ -243,6 +388,96 @@ func (m *ConnectionManager) Delete(id string) error {
 		}
 	}
 	return m.saveLocked()
+}
+
+func (m *ConnectionManager) Import(req models.ConnectionImportRequest) models.ConnectionImportResult {
+	result := models.ConnectionImportResult{
+		Strategy: strings.ToLower(strings.TrimSpace(req.Strategy)),
+		Errors:   make([]string, 0),
+	}
+	if result.Strategy == "" {
+		result.Strategy = "skip"
+	}
+	for _, item := range req.Items {
+		preview := m.PreviewImport(models.ConnectionImportRequest{Items: []models.ConnectionUpsertRequest{item}})
+		if len(preview.Items) == 0 {
+			result.Failed++
+			result.Errors = append(result.Errors, fmt.Sprintf("%s: invalid item", item.Name))
+			continue
+		}
+		conflict := preview.Items[0]
+		if conflict.Action == "conflict" {
+			if result.Strategy == "skip" {
+				result.Skipped++
+				continue
+			}
+			if result.Strategy == "overwrite" {
+				if _, err := m.Update(conflict.MatchedID, item); err != nil {
+					result.Failed++
+					result.Errors = append(result.Errors, fmt.Sprintf("%s: %v", item.Name, err))
+					continue
+				}
+				result.Updated++
+				continue
+			}
+		}
+		if _, err := m.Add(item); err != nil {
+			result.Failed++
+			result.Errors = append(result.Errors, fmt.Sprintf("%s: %v", item.Name, err))
+			continue
+		}
+		result.Created++
+	}
+	if len(result.Errors) == 0 {
+		result.Errors = nil
+	}
+	return result
+}
+
+func (m *ConnectionManager) PreviewImport(req models.ConnectionImportRequest) models.ConnectionImportPreviewResult {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	result := models.ConnectionImportPreviewResult{
+		Items: make([]models.ConnectionImportPreviewItem, 0, len(req.Items)),
+	}
+	for _, item := range req.Items {
+		previewItem := models.ConnectionImportPreviewItem{
+			Name:     strings.TrimSpace(item.Name),
+			Group:    strings.TrimSpace(item.Group),
+			Tags:     compactStrings(item.Tags),
+			NATSURLs: compactStrings(item.NATSURLs),
+			Action:   "create",
+		}
+		if matched, ok := m.findByNameLocked(previewItem.Name); ok {
+			previewItem.Action = "conflict"
+			previewItem.MatchedID = matched.ID
+			result.Conflicts++
+		} else {
+			result.NewCount++
+		}
+		result.Items = append(result.Items, previewItem)
+	}
+	return result
+}
+
+func (m *ConnectionManager) BatchDelete(ids []string) models.ConnectionBatchDeleteResult {
+	result := models.ConnectionBatchDeleteResult{
+		Errors: make([]string, 0),
+	}
+	for _, id := range compactStrings(ids) {
+		if err := m.Delete(id); err != nil {
+			result.Failed++
+			result.Errors = append(result.Errors, fmt.Sprintf("%s: %v", id, err))
+			continue
+		}
+		result.Deleted++
+	}
+	result.ActiveID = m.ActiveID()
+	if len(result.Errors) == 0 {
+		result.Errors = nil
+	}
+	return result
 }
 
 func (m *ConnectionManager) Activate(id string) error {
@@ -282,6 +517,9 @@ func (m *ConnectionManager) Resolve(id string) (models.ConnectionConfig, *client
 	}
 
 	client := &clientBundle{nc: nc, js: js}
+	client.lastStatus = nc.Status().String()
+	client.connectedURL = nc.ConnectedUrl()
+	client.lastCheckedAt = time.Now()
 	m.clients[id] = client
 	return item, client, nil
 }
@@ -290,7 +528,9 @@ func (m *ConnectionManager) Close() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for id, client := range m.clients {
-		client.nc.Close()
+		if client.nc != nil {
+			client.nc.Close()
+		}
 		delete(m.clients, id)
 	}
 }
@@ -346,6 +586,138 @@ func generateConnectionID(name string) string {
 }
 
 func (m *ConnectionManager) TestConnection(ctx context.Context, id string) error {
-	_, _, err := m.Resolve(id)
+	m.mu.RLock()
+	item, ok := m.items[id]
+	m.mu.RUnlock()
+	if !ok {
+		return ErrConnectionNotFound
+	}
+
+	nc, err := connectNATS(item)
+	checkedAt := time.Now()
+	if err != nil {
+		m.setTestState(id, "", "", err, checkedAt)
+		return err
+	}
+	defer nc.Close()
+
+	js, err := nc.JetStream()
+	if err != nil {
+		m.setTestState(id, "", "", err, checkedAt)
+		return err
+	}
+	_ = js
+	connectedURL := nc.ConnectedUrl()
+	status := nc.Status().String()
+	m.setTestState(id, status, connectedURL, nil, checkedAt)
+	return nil
+}
+
+func (m *ConnectionManager) Probe(ctx context.Context, req models.ConnectionUpsertRequest) error {
+	item := models.ConnectionConfig{
+		ID:               "probe",
+		Name:             strings.TrimSpace(req.Name),
+		Group:            strings.TrimSpace(req.Group),
+		Tags:             compactStrings(req.Tags),
+		NATSURLs:         compactStrings(req.NATSURLs),
+		MonitorEndpoints: compactStrings(req.MonitorEndpoints),
+		Username:         strings.TrimSpace(req.Username),
+		Password:         req.Password,
+		Token:            strings.TrimSpace(req.Token),
+	}
+	if item.Name == "" || len(item.NATSURLs) == 0 {
+		return errors.New("name and natsUrls are required")
+	}
+	nc, err := connectNATS(item)
+	if err != nil {
+		return err
+	}
+	defer nc.Close()
+	_, err = nc.JetStream()
 	return err
+}
+
+func (m *ConnectionManager) DiscoverMonitorEndpoints(req models.ConnectionDiscoverRequest) models.ConnectionDiscoverResult {
+	endpoints := make([]string, 0, len(req.NATSURLs))
+	seen := make(map[string]struct{})
+	for _, raw := range compactStrings(req.NATSURLs) {
+		u, err := url.Parse(raw)
+		if err != nil {
+			continue
+		}
+		host := u.Hostname()
+		port := u.Port()
+		monitorPort := "8222"
+		if port != "" {
+			if parsedPort, err := strconv.Atoi(port); err == nil {
+				monitorPort = strconv.Itoa(parsedPort + 4000)
+			}
+		}
+		endpoint := fmt.Sprintf("http://%s:%s", host, monitorPort)
+		if _, ok := seen[endpoint]; ok {
+			continue
+		}
+		seen[endpoint] = struct{}{}
+		endpoints = append(endpoints, endpoint)
+	}
+	return models.ConnectionDiscoverResult{
+		MonitorEndpoints: endpoints,
+		Method:           "host-match-plus-4000-port",
+	}
+}
+
+func (m *ConnectionManager) setTestState(id, status, connectedURL string, err error, checkedAt time.Time) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	existing, ok := m.clients[id]
+	if ok && existing != nil && existing.nc != nil && existing.nc.IsClosed() {
+		delete(m.clients, id)
+		existing = nil
+		ok = false
+	}
+
+	if err != nil {
+		if !ok {
+			m.clients[id] = &clientBundle{}
+			existing = m.clients[id]
+		}
+		existing.lastError = err.Error()
+		existing.lastCheckedAt = checkedAt
+		existing.lastStatus = "ERROR"
+		return
+	}
+	if !ok {
+		m.clients[id] = &clientBundle{}
+		existing = m.clients[id]
+	}
+	existing.lastStatus = status
+	existing.connectedURL = connectedURL
+	existing.lastError = ""
+	existing.lastCheckedAt = checkedAt
+}
+
+func normalizeConnectionPagination(page, pageSize int) (int, int) {
+	if page <= 0 {
+		page = 1
+	}
+	if pageSize <= 0 {
+		pageSize = 12
+	}
+	if pageSize > 100 {
+		pageSize = 100
+	}
+	return page, pageSize
+}
+
+func connectionPaginateBounds(total, page, pageSize int) (int, int) {
+	start := (page - 1) * pageSize
+	if start > total {
+		start = total
+	}
+	end := start + pageSize
+	if end > total {
+		end = total
+	}
+	return start, end
 }

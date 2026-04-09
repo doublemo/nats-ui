@@ -1,13 +1,19 @@
 <script setup>
-import { onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { createStream, deleteStream, getStreamDetail, getStreams, onConnectionChanged } from '../api/nats'
+import { batchDeleteStreams, createStream, deleteStream, getStreamDetail, getStreams, onConnectionChanged } from '../api/nats'
+
+const JETSTREAM_VIEW_STATE_KEY = 'nats-ui-jetstream-view-state'
 
 const streams = ref([])
+const total = ref(0)
 const loading = ref(false)
 const selected = ref(null)
+const selectedRows = ref([])
 const detail = ref(null)
 const dialogVisible = ref(false)
+const page = ref(1)
+const pageSize = ref(8)
 let unsubscribe
 const form = reactive({
   name: '',
@@ -17,16 +23,44 @@ const form = reactive({
   maxAgeSec: 0,
 })
 
+restoreViewState()
+
 async function loadStreams() {
   loading.value = true
   try {
-    streams.value = await getStreams()
+    const data = await getStreams({ page: page.value, pageSize: pageSize.value })
+    streams.value = data.items
+    total.value = data.total
     if (selected.value) {
       await selectStream(selected.value)
     }
   } finally {
     loading.value = false
   }
+}
+
+function restoreViewState() {
+  try {
+    const raw = window.localStorage.getItem(JETSTREAM_VIEW_STATE_KEY)
+    if (!raw) return
+    const saved = JSON.parse(raw)
+    page.value = saved.page || 1
+    pageSize.value = saved.pageSize || 8
+    selected.value = saved.selected || null
+  } catch {
+    window.localStorage.removeItem(JETSTREAM_VIEW_STATE_KEY)
+  }
+}
+
+function persistViewState() {
+  window.localStorage.setItem(
+    JETSTREAM_VIEW_STATE_KEY,
+    JSON.stringify({
+      page: page.value,
+      pageSize: pageSize.value,
+      selected: selected.value,
+    }),
+  )
 }
 
 async function selectStream(name) {
@@ -58,11 +92,30 @@ async function removeStream(name) {
   await loadStreams()
 }
 
+async function removeSelectedStreams() {
+  if (!selectedRows.value.length) {
+    ElMessage.warning('请先选择 Stream')
+    return
+  }
+  await ElMessageBox.confirm(`确认批量删除 ${selectedRows.value.length} 个 Stream ?`, '提示', { type: 'warning' })
+  const names = selectedRows.value.map((row) => row.name)
+  const result = await batchDeleteStreams(names)
+  if (names.includes(selected.value)) {
+    selected.value = null
+    detail.value = null
+  }
+  selectedRows.value = []
+  await loadStreams()
+  ElMessage.success(`批量删除完成，成功 ${result.deleted}，失败 ${result.failed}`)
+}
+
 onMounted(async () => {
   await loadStreams()
   unsubscribe = onConnectionChanged(async () => {
     selected.value = null
     detail.value = null
+    selectedRows.value = []
+    page.value = 1
     await loadStreams()
   })
 })
@@ -70,6 +123,23 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   unsubscribe?.()
 })
+
+watch(pageSize, async () => {
+  selectedRows.value = []
+  page.value = 1
+  await loadStreams()
+})
+
+watch(page, async () => {
+  selectedRows.value = []
+  await loadStreams()
+})
+
+watch(
+  () => [page.value, pageSize.value, selected.value],
+  persistViewState,
+  { deep: true },
+)
 </script>
 
 <template>
@@ -78,10 +148,14 @@ onBeforeUnmount(() => {
       <template #header>
         <div class="card-header">
           <span>Streams</span>
-          <el-button type="primary" @click="dialogVisible = true">新建</el-button>
+          <div class="data-toolbar">
+            <el-button type="danger" plain @click="removeSelectedStreams">批量删除</el-button>
+            <el-button type="primary" @click="dialogVisible = true">新建</el-button>
+          </div>
         </div>
       </template>
-      <el-table :data="streams" stripe v-loading="loading">
+      <el-table :data="streams" stripe v-loading="loading" @selection-change="selectedRows = $event">
+        <el-table-column type="selection" width="46" />
         <el-table-column prop="name" label="名称" min-width="120">
           <template #default="{ row }">
             <el-link type="primary" @click="selectStream(row.name)">{{ row.name }}</el-link>
@@ -96,6 +170,15 @@ onBeforeUnmount(() => {
           </template>
         </el-table-column>
       </el-table>
+      <div class="table-pagination">
+        <el-pagination
+          v-model:current-page="page"
+          v-model:page-size="pageSize"
+          layout="total, sizes, prev, pager, next"
+          :total="total"
+          :page-sizes="[8, 12, 20]"
+        />
+      </div>
     </el-card>
 
     <el-card shadow="never" class="split-main">

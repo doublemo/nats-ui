@@ -10,6 +10,7 @@ type Config struct {
 	NATSURL          string
 	MonitorEndpoints []string
 	ConnectionStore  string
+	SecretKeyFile    string
 }
 
 func Load() Config {
@@ -18,6 +19,7 @@ func Load() Config {
 		NATSURL:          getEnv("NATS_URL", "nats://127.0.0.1:4222"),
 		MonitorEndpoints: splitCSV(getEnv("NATS_MONITOR_URLS", "http://127.0.0.1:8222")),
 		ConnectionStore:  getEnv("NATS_CONNECTION_STORE", "data/connections.json"),
+		SecretKeyFile:    getEnv("NATS_SECRET_KEY_FILE", "data/secret.key"),
 	}
 }
 

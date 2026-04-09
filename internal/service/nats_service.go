@@ -127,7 +127,7 @@ func (s *NATSService) GetClusterOverview(ctx context.Context, connectionID strin
 	return overview, nil
 }
 
-func (s *NATSService) ListStreams(ctx context.Context, connectionID string) ([]models.StreamItem, error) {
+func (s *NATSService) ListStreams(ctx context.Context, connectionID string, page, pageSize int) (*models.StreamListResponse, error) {
 	_, client, err := s.manager.Resolve(connectionID)
 	if err != nil {
 		return nil, err
@@ -165,7 +165,18 @@ func (s *NATSService) ListStreams(ctx context.Context, connectionID string) ([]m
 		items = append(items, item)
 	}
 
-	return items, nil
+	total := len(items)
+	page, pageSize = normalizePagination(page, pageSize)
+	start, end := paginateBounds(total, page, pageSize)
+
+	return &models.StreamListResponse{
+		Items: items[start:end],
+		Pagination: models.Pagination{
+			Page:     page,
+			PageSize: pageSize,
+			Total:    total,
+		},
+	}, nil
 }
 
 func (s *NATSService) CreateStream(ctx context.Context, connectionID string, req models.CreateStreamRequest) error {
@@ -186,6 +197,26 @@ func (s *NATSService) DeleteStream(ctx context.Context, connectionID, name strin
 		return err
 	}
 	return client.js.DeleteStream(name)
+}
+
+func (s *NATSService) BatchDeleteStreams(ctx context.Context, connectionID string, names []string) models.BatchDeleteResult {
+	result := models.BatchDeleteResult{Errors: make([]string, 0)}
+	for _, name := range names {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		if err := s.DeleteStream(ctx, connectionID, name); err != nil {
+			result.Failed++
+			result.Errors = append(result.Errors, fmt.Sprintf("%s: %v", name, err))
+			continue
+		}
+		result.Deleted++
+	}
+	if len(result.Errors) == 0 {
+		result.Errors = nil
+	}
+	return result
 }
 
 func (s *NATSService) GetStreamDetail(ctx context.Context, connectionID, name string) (*models.StreamDetail, error) {
@@ -238,8 +269,8 @@ func (s *NATSService) GetStreamDetail(ctx context.Context, connectionID, name st
 	return detail, nil
 }
 
-func (s *NATSService) ListBuckets(ctx context.Context, connectionID string) ([]models.BucketItem, error) {
-	streams, err := s.ListStreams(ctx, connectionID)
+func (s *NATSService) ListBuckets(ctx context.Context, connectionID string, page, pageSize int) (*models.BucketListResponse, error) {
+	streams, err := s.ListStreams(ctx, connectionID, 1, 100000)
 	if err != nil {
 		return nil, err
 	}
@@ -250,7 +281,7 @@ func (s *NATSService) ListBuckets(ctx context.Context, connectionID string) ([]m
 	}
 
 	items := make([]models.BucketItem, 0)
-	for _, stream := range streams {
+	for _, stream := range streams.Items {
 		if !strings.HasPrefix(stream.Name, "KV_") {
 			continue
 		}
@@ -275,7 +306,18 @@ func (s *NATSService) ListBuckets(ctx context.Context, connectionID string) ([]m
 		})
 	}
 
-	return items, nil
+	total := len(items)
+	page, pageSize = normalizePagination(page, pageSize)
+	start, end := paginateBounds(total, page, pageSize)
+
+	return &models.BucketListResponse{
+		Items: items[start:end],
+		Pagination: models.Pagination{
+			Page:     page,
+			PageSize: pageSize,
+			Total:    total,
+		},
+	}, nil
 }
 
 func (s *NATSService) CreateBucket(ctx context.Context, connectionID string, req models.CreateBucketRequest) error {
@@ -302,7 +344,27 @@ func (s *NATSService) DeleteBucket(ctx context.Context, connectionID, name strin
 	return client.js.DeleteKeyValue(name)
 }
 
-func (s *NATSService) ListKVEntries(ctx context.Context, connectionID, bucket string) ([]models.KVEntry, error) {
+func (s *NATSService) BatchDeleteBuckets(ctx context.Context, connectionID string, names []string) models.BatchDeleteResult {
+	result := models.BatchDeleteResult{Errors: make([]string, 0)}
+	for _, name := range names {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		if err := s.DeleteBucket(ctx, connectionID, name); err != nil {
+			result.Failed++
+			result.Errors = append(result.Errors, fmt.Sprintf("%s: %v", name, err))
+			continue
+		}
+		result.Deleted++
+	}
+	if len(result.Errors) == 0 {
+		result.Errors = nil
+	}
+	return result
+}
+
+func (s *NATSService) ListKVEntries(ctx context.Context, connectionID, bucket string, page, pageSize int) (*models.KVEntryListResponse, error) {
 	_, client, err := s.manager.Resolve(connectionID)
 	if err != nil {
 		return nil, err
@@ -333,7 +395,18 @@ func (s *NATSService) ListKVEntries(ctx context.Context, connectionID, bucket st
 		})
 	}
 
-	return entries, nil
+	total := len(entries)
+	page, pageSize = normalizePagination(page, pageSize)
+	start, end := paginateBounds(total, page, pageSize)
+
+	return &models.KVEntryListResponse{
+		Items: entries[start:end],
+		Pagination: models.Pagination{
+			Page:     page,
+			PageSize: pageSize,
+			Total:    total,
+		},
+	}, nil
 }
 
 func (s *NATSService) PutKVEntry(ctx context.Context, connectionID, bucket, key, value string) error {
@@ -359,6 +432,26 @@ func (s *NATSService) DeleteKVEntry(ctx context.Context, connectionID, bucket, k
 		return err
 	}
 	return kv.Delete(key)
+}
+
+func (s *NATSService) BatchDeleteKVEntries(ctx context.Context, connectionID, bucket string, keys []string) models.BatchDeleteResult {
+	result := models.BatchDeleteResult{Errors: make([]string, 0)}
+	for _, key := range keys {
+		key = strings.TrimSpace(key)
+		if key == "" {
+			continue
+		}
+		if err := s.DeleteKVEntry(ctx, connectionID, bucket, key); err != nil {
+			result.Failed++
+			result.Errors = append(result.Errors, fmt.Sprintf("%s: %v", key, err))
+			continue
+		}
+		result.Deleted++
+	}
+	if len(result.Errors) == 0 {
+		result.Errors = nil
+	}
+	return result
 }
 
 func toStorage(storage string) nats.StorageType {
@@ -389,6 +482,31 @@ func modelsToKVConfig(req models.CreateBucketRequest, history int64) nats.KeyVal
 		History:     uint8(history),
 		Storage:     toStorage(req.Storage),
 	}
+}
+
+func normalizePagination(page, pageSize int) (int, int) {
+	if page <= 0 {
+		page = 1
+	}
+	if pageSize <= 0 {
+		pageSize = 10
+	}
+	if pageSize > 200 {
+		pageSize = 200
+	}
+	return page, pageSize
+}
+
+func paginateBounds(total, page, pageSize int) (int, int) {
+	start := (page - 1) * pageSize
+	if start > total {
+		start = total
+	}
+	end := start + pageSize
+	if end > total {
+		end = total
+	}
+	return start, end
 }
 
 type varzResponse struct {

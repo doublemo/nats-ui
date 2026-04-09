@@ -2,6 +2,8 @@ package handlers
 
 import (
 	"net/http"
+	"strconv"
+	"time"
 
 	"github.com/doublemo/nats-ui/internal/models"
 	"github.com/doublemo/nats-ui/internal/service"
@@ -22,22 +24,31 @@ func (h *NATSHandler) Register(router *gin.Engine) {
 	{
 		api.GET("/connections", h.ListConnections)
 		api.POST("/connections", h.CreateConnection)
+		api.POST("/connections/import", h.ImportConnections)
+		api.POST("/connections/import-preview", h.PreviewImportConnections)
+		api.POST("/connections/test", h.TestConnectionWithPayload)
+		api.POST("/connections/discover-monitors", h.DiscoverMonitorEndpoints)
+		api.POST("/connections/batch-delete", h.BatchDeleteConnections)
 		api.PUT("/connections/:id", h.UpdateConnection)
 		api.DELETE("/connections/:id", h.DeleteConnection)
 		api.POST("/connections/:id/activate", h.ActivateConnection)
+		api.POST("/connections/:id/test", h.TestConnection)
 
 		api.GET("/cluster/overview", h.GetClusterOverview)
 
 		api.GET("/streams", h.ListStreams)
 		api.POST("/streams", h.CreateStream)
+		api.POST("/streams/batch-delete", h.BatchDeleteStreams)
 		api.GET("/streams/:name", h.GetStreamDetail)
 		api.DELETE("/streams/:name", h.DeleteStream)
 
 		api.GET("/kv/buckets", h.ListBuckets)
 		api.POST("/kv/buckets", h.CreateBucket)
+		api.POST("/kv/buckets/batch-delete", h.BatchDeleteBuckets)
 		api.DELETE("/kv/buckets/:name", h.DeleteBucket)
 		api.GET("/kv/buckets/:name/entries", h.ListKVEntries)
 		api.PUT("/kv/buckets/:name/entries/:key", h.PutKVEntry)
+		api.POST("/kv/buckets/:name/entries/batch-delete", h.BatchDeleteKVEntries)
 		api.DELETE("/kv/buckets/:name/entries/:key", h.DeleteKVEntry)
 	}
 }
@@ -53,7 +64,7 @@ func (h *NATSHandler) GetClusterOverview(c *gin.Context) {
 }
 
 func (h *NATSHandler) ListStreams(c *gin.Context) {
-	data, err := h.service.ListStreams(c.Request.Context(), connectionIDFromContext(c))
+	data, err := h.service.ListStreams(c.Request.Context(), connectionIDFromContext(c), queryInt(c, "page", 1), queryInt(c, "pageSize", 10))
 	if err != nil {
 		writeError(c, http.StatusBadGateway, err)
 		return
@@ -93,8 +104,17 @@ func (h *NATSHandler) DeleteStream(c *gin.Context) {
 	writeSuccess(c, gin.H{"deleted": true})
 }
 
+func (h *NATSHandler) BatchDeleteStreams(c *gin.Context) {
+	var req models.StreamBatchDeleteRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		writeError(c, http.StatusBadRequest, err)
+		return
+	}
+	writeSuccess(c, h.service.BatchDeleteStreams(c.Request.Context(), connectionIDFromContext(c), req.Names))
+}
+
 func (h *NATSHandler) ListBuckets(c *gin.Context) {
-	data, err := h.service.ListBuckets(c.Request.Context(), connectionIDFromContext(c))
+	data, err := h.service.ListBuckets(c.Request.Context(), connectionIDFromContext(c), queryInt(c, "page", 1), queryInt(c, "pageSize", 10))
 	if err != nil {
 		writeError(c, http.StatusBadGateway, err)
 		return
@@ -124,8 +144,17 @@ func (h *NATSHandler) DeleteBucket(c *gin.Context) {
 	writeSuccess(c, gin.H{"deleted": true})
 }
 
+func (h *NATSHandler) BatchDeleteBuckets(c *gin.Context) {
+	var req models.StreamBatchDeleteRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		writeError(c, http.StatusBadRequest, err)
+		return
+	}
+	writeSuccess(c, h.service.BatchDeleteBuckets(c.Request.Context(), connectionIDFromContext(c), req.Names))
+}
+
 func (h *NATSHandler) ListKVEntries(c *gin.Context) {
-	data, err := h.service.ListKVEntries(c.Request.Context(), connectionIDFromContext(c), c.Param("name"))
+	data, err := h.service.ListKVEntries(c.Request.Context(), connectionIDFromContext(c), c.Param("name"), queryInt(c, "page", 1), queryInt(c, "pageSize", 10))
 	if err != nil {
 		writeError(c, http.StatusBadGateway, err)
 		return
@@ -155,11 +184,24 @@ func (h *NATSHandler) DeleteKVEntry(c *gin.Context) {
 	writeSuccess(c, gin.H{"deleted": true})
 }
 
+func (h *NATSHandler) BatchDeleteKVEntries(c *gin.Context) {
+	var req models.KVEntryBatchDeleteRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		writeError(c, http.StatusBadRequest, err)
+		return
+	}
+	writeSuccess(c, h.service.BatchDeleteKVEntries(c.Request.Context(), connectionIDFromContext(c), c.Param("name"), req.Keys))
+}
+
 func (h *NATSHandler) ListConnections(c *gin.Context) {
-	writeSuccess(c, gin.H{
-		"activeId": h.manager.ActiveID(),
-		"items":    h.manager.List(),
-	})
+	writeSuccess(c, h.manager.ListPaged(
+		queryInt(c, "page", 1),
+		queryInt(c, "pageSize", 12),
+		c.Query("keyword"),
+		c.Query("group"),
+		c.Query("tag"),
+		c.Query("status"),
+	))
 }
 
 func (h *NATSHandler) CreateConnection(c *gin.Context) {
@@ -219,8 +261,93 @@ func (h *NATSHandler) ActivateConnection(c *gin.Context) {
 	writeSuccess(c, gin.H{"activeId": h.manager.ActiveID()})
 }
 
+func (h *NATSHandler) TestConnection(c *gin.Context) {
+	id := c.Param("id")
+	err := h.manager.TestConnection(c.Request.Context(), id)
+	if err != nil {
+		writeError(c, http.StatusBadGateway, err)
+		return
+	}
+	writeSuccess(c, models.ConnectionTestResult{
+		OK:            true,
+		Status:        "CONNECTED",
+		Message:       "connection test passed",
+		LastCheckedAt: nowRFC3339(),
+	})
+}
+
+func (h *NATSHandler) TestConnectionWithPayload(c *gin.Context) {
+	var req models.ConnectionUpsertRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		writeError(c, http.StatusBadRequest, err)
+		return
+	}
+	if err := h.manager.Probe(c.Request.Context(), req); err != nil {
+		writeError(c, http.StatusBadGateway, err)
+		return
+	}
+	writeSuccess(c, models.ConnectionTestResult{
+		OK:            true,
+		Status:        "CONNECTED",
+		Message:       "connection test passed",
+		LastCheckedAt: nowRFC3339(),
+	})
+}
+
+func (h *NATSHandler) DiscoverMonitorEndpoints(c *gin.Context) {
+	var req models.ConnectionDiscoverRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		writeError(c, http.StatusBadRequest, err)
+		return
+	}
+	writeSuccess(c, h.manager.DiscoverMonitorEndpoints(req))
+}
+
+func (h *NATSHandler) ImportConnections(c *gin.Context) {
+	var req models.ConnectionImportRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		writeError(c, http.StatusBadRequest, err)
+		return
+	}
+	writeSuccess(c, h.manager.Import(req))
+}
+
+func (h *NATSHandler) PreviewImportConnections(c *gin.Context) {
+	var req models.ConnectionImportRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		writeError(c, http.StatusBadRequest, err)
+		return
+	}
+	writeSuccess(c, h.manager.PreviewImport(req))
+}
+
+func (h *NATSHandler) BatchDeleteConnections(c *gin.Context) {
+	var req models.ConnectionBatchDeleteRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		writeError(c, http.StatusBadRequest, err)
+		return
+	}
+	writeSuccess(c, h.manager.BatchDelete(req.IDs))
+}
+
 func connectionIDFromContext(c *gin.Context) string {
 	return c.Query("connectionId")
+}
+
+func nowRFC3339() string {
+	return time.Now().Format(time.RFC3339)
+}
+
+func queryInt(c *gin.Context, key string, fallback int) int {
+	raw := c.Query(key)
+	if raw == "" {
+		return fallback
+	}
+	value, err := strconv.Atoi(raw)
+	if err != nil {
+		return fallback
+	}
+	return value
 }
 
 func writeSuccess(c *gin.Context, data interface{}) {

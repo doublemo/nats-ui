@@ -1,6 +1,7 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
+import { Connection, DataAnalysis, Expand, FolderOpened, Key } from '@element-plus/icons-vue'
 import {
   activateConnection,
   getActiveConnectionId,
@@ -11,6 +12,7 @@ import {
 
 const connections = ref([])
 const activeId = ref(getActiveConnectionId())
+const collapsed = ref(false)
 let unsubscribe
 
 const currentLabel = computed(() => {
@@ -48,19 +50,37 @@ onBeforeUnmount(() => {
 
 <template>
   <el-container class="layout-shell">
-    <el-aside width="220px" class="sidebar">
-      <div class="brand">NATS UI</div>
-      <el-menu :default-active="$route.path" router class="nav-menu">
-        <el-menu-item index="/connections">连接管理</el-menu-item>
-        <el-menu-item index="/dashboard">集群概览</el-menu-item>
-        <el-menu-item index="/jetstream">JetStream 管理</el-menu-item>
-        <el-menu-item index="/kv">KV 管理</el-menu-item>
+    <el-aside :width="collapsed ? '76px' : '240px'" class="sidebar">
+      <div class="brand" :class="{ collapsed }">
+        <span class="brand-mark">N</span>
+        <span v-if="!collapsed" class="brand-text">NATS UI</span>
+      </div>
+      <el-menu :default-active="$route.path" router class="nav-menu" :collapse="collapsed">
+        <el-menu-item index="/connections">
+          <el-icon><Connection /></el-icon>
+          <span>连接管理</span>
+        </el-menu-item>
+        <el-menu-item index="/dashboard">
+          <el-icon><DataAnalysis /></el-icon>
+          <span>集群概览</span>
+        </el-menu-item>
+        <el-menu-item index="/jetstream">
+          <el-icon><FolderOpened /></el-icon>
+          <span>JetStream 管理</span>
+        </el-menu-item>
+        <el-menu-item index="/kv">
+          <el-icon><Key /></el-icon>
+          <span>KV 管理</span>
+        </el-menu-item>
       </el-menu>
     </el-aside>
 
     <el-container>
       <el-header class="topbar">
-        <div>
+        <div class="topbar-title">
+          <el-button circle plain class="collapse-btn" @click="collapsed = !collapsed">
+            <el-icon class="collapse-icon" :class="{ collapsed }"><Expand /></el-icon>
+          </el-button>
           <h1>NATS Server 可视化管理工具</h1>
           <p>Golang + Vue 3 + JetStream</p>
         </div>

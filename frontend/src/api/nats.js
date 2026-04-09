@@ -42,12 +42,20 @@ export function onConnectionChanged(listener) {
   return () => window.removeEventListener(CONNECTION_EVENT, listener)
 }
 
-export function getConnections() {
-  return http.get('/connections', { params: {} })
+export function getConnections(params) {
+  return http.get('/connections', { params })
 }
 
 export function createConnection(payload) {
   return http.post('/connections', payload)
+}
+
+export function importConnections(items) {
+  return http.post('/connections/import', items)
+}
+
+export function previewImportConnections(items) {
+  return http.post('/connections/import-preview', { items })
 }
 
 export function updateConnection(id, payload) {
@@ -58,16 +66,32 @@ export function deleteConnection(id) {
   return http.delete(`/connections/${id}`)
 }
 
+export function batchDeleteConnections(ids) {
+  return http.post('/connections/batch-delete', { ids })
+}
+
 export function activateConnection(id) {
   return http.post(`/connections/${id}/activate`)
+}
+
+export function testConnection(id) {
+  return http.post(`/connections/${id}/test`)
+}
+
+export function probeConnection(payload) {
+  return http.post('/connections/test', payload)
+}
+
+export function discoverMonitorEndpoints(natsUrls) {
+  return http.post('/connections/discover-monitors', { natsUrls })
 }
 
 export function getClusterOverview() {
   return http.get('/cluster/overview')
 }
 
-export function getStreams() {
-  return http.get('/streams')
+export function getStreams(params) {
+  return http.get('/streams', { params })
 }
 
 export function getStreamDetail(name) {
@@ -82,8 +106,12 @@ export function deleteStream(name) {
   return http.delete(`/streams/${name}`)
 }
 
-export function getBuckets() {
-  return http.get('/kv/buckets')
+export function batchDeleteStreams(names) {
+  return http.post('/streams/batch-delete', { names })
+}
+
+export function getBuckets(params) {
+  return http.get('/kv/buckets', { params })
 }
 
 export function createBucket(payload) {
@@ -94,8 +122,12 @@ export function deleteBucket(name) {
   return http.delete(`/kv/buckets/${name}`)
 }
 
-export function getBucketEntries(name) {
-  return http.get(`/kv/buckets/${name}/entries`)
+export function batchDeleteBuckets(names) {
+  return http.post('/kv/buckets/batch-delete', { names })
+}
+
+export function getBucketEntries(name, params) {
+  return http.get(`/kv/buckets/${name}/entries`, { params })
 }
 
 export function putBucketEntry(bucket, key, value) {
@@ -104,4 +136,8 @@ export function putBucketEntry(bucket, key, value) {
 
 export function deleteBucketEntry(bucket, key) {
   return http.delete(`/kv/buckets/${bucket}/entries/${key}`)
+}
+
+export function batchDeleteBucketEntries(bucket, keys) {
+  return http.post(`/kv/buckets/${bucket}/entries/batch-delete`, { keys })
 }

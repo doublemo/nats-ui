@@ -110,6 +110,27 @@ type CreateStreamRequest struct {
 	MaxAgeSec int64    `json:"maxAgeSec"`
 }
 
+type StreamBatchDeleteRequest struct {
+	Names []string `json:"names" binding:"required"`
+}
+
+type BatchDeleteResult struct {
+	Deleted int      `json:"deleted"`
+	Failed  int      `json:"failed"`
+	Errors  []string `json:"errors,omitempty"`
+}
+
+type Pagination struct {
+	Page     int `json:"page"`
+	PageSize int `json:"pageSize"`
+	Total    int `json:"total"`
+}
+
+type StreamListResponse struct {
+	Items []StreamItem `json:"items"`
+	Pagination
+}
+
 type BucketItem struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
@@ -127,6 +148,16 @@ type KVEntry struct {
 	Operation string `json:"operation"`
 }
 
+type BucketListResponse struct {
+	Items []BucketItem `json:"items"`
+	Pagination
+}
+
+type KVEntryListResponse struct {
+	Items []KVEntry `json:"items"`
+	Pagination
+}
+
 type CreateBucketRequest struct {
 	Name        string `json:"name" binding:"required"`
 	Description string `json:"description"`
@@ -138,28 +169,111 @@ type UpsertKVEntryRequest struct {
 	Value string `json:"value" binding:"required"`
 }
 
+type KVEntryBatchDeleteRequest struct {
+	Keys []string `json:"keys" binding:"required"`
+}
+
 type ConnectionConfig struct {
 	ID               string   `json:"id"`
 	Name             string   `json:"name"`
+	Group            string   `json:"group,omitempty"`
+	Tags             []string `json:"tags,omitempty"`
 	NATSURLs         []string `json:"natsUrls"`
 	MonitorEndpoints []string `json:"monitorEndpoints"`
 	Username         string   `json:"username,omitempty"`
 	Password         string   `json:"password,omitempty"`
 	Token            string   `json:"token,omitempty"`
+	PasswordCipher   string   `json:"passwordCipher,omitempty"`
+	TokenCipher      string   `json:"tokenCipher,omitempty"`
 }
 
 type ConnectionInfo struct {
-	ConnectionConfig
-	IsActive     bool   `json:"isActive"`
-	Status       string `json:"status,omitempty"`
-	ConnectedURL string `json:"connectedUrl,omitempty"`
+	ID               string   `json:"id"`
+	Name             string   `json:"name"`
+	Group            string   `json:"group,omitempty"`
+	Tags             []string `json:"tags,omitempty"`
+	NATSURLs         []string `json:"natsUrls"`
+	MonitorEndpoints []string `json:"monitorEndpoints"`
+	Username         string   `json:"username,omitempty"`
+	HasPassword      bool     `json:"hasPassword"`
+	HasToken         bool     `json:"hasToken"`
+	IsActive         bool     `json:"isActive"`
+	Status           string   `json:"status,omitempty"`
+	ConnectedURL     string   `json:"connectedUrl,omitempty"`
+	LastError        string   `json:"lastError,omitempty"`
+	LastCheckedAt    string   `json:"lastCheckedAt,omitempty"`
+}
+
+type ConnectionListResponse struct {
+	ActiveID string           `json:"activeId"`
+	Items    []ConnectionInfo `json:"items"`
+	Pagination
 }
 
 type ConnectionUpsertRequest struct {
 	Name             string   `json:"name" binding:"required"`
+	Group            string   `json:"group"`
+	Tags             []string `json:"tags"`
 	NATSURLs         []string `json:"natsUrls" binding:"required"`
 	MonitorEndpoints []string `json:"monitorEndpoints"`
 	Username         string   `json:"username"`
 	Password         string   `json:"password"`
 	Token            string   `json:"token"`
+}
+
+type ConnectionTestResult struct {
+	OK            bool   `json:"ok"`
+	Status        string `json:"status"`
+	ConnectedURL  string `json:"connectedUrl,omitempty"`
+	Message       string `json:"message,omitempty"`
+	LastCheckedAt string `json:"lastCheckedAt"`
+}
+
+type ConnectionDiscoverRequest struct {
+	NATSURLs []string `json:"natsUrls" binding:"required"`
+}
+
+type ConnectionDiscoverResult struct {
+	MonitorEndpoints []string `json:"monitorEndpoints"`
+	Method           string   `json:"method"`
+}
+
+type ConnectionImportRequest struct {
+	Items    []ConnectionUpsertRequest `json:"items" binding:"required"`
+	Strategy string                    `json:"strategy,omitempty"`
+}
+
+type ConnectionImportResult struct {
+	Created  int      `json:"created"`
+	Updated  int      `json:"updated"`
+	Skipped  int      `json:"skipped"`
+	Failed   int      `json:"failed"`
+	Strategy string   `json:"strategy,omitempty"`
+	Errors   []string `json:"errors,omitempty"`
+}
+
+type ConnectionBatchDeleteRequest struct {
+	IDs []string `json:"ids" binding:"required"`
+}
+
+type ConnectionBatchDeleteResult struct {
+	Deleted  int      `json:"deleted"`
+	Failed   int      `json:"failed"`
+	ActiveID string   `json:"activeId"`
+	Errors   []string `json:"errors,omitempty"`
+}
+
+type ConnectionImportPreviewItem struct {
+	Name      string   `json:"name"`
+	Group     string   `json:"group,omitempty"`
+	Tags      []string `json:"tags,omitempty"`
+	NATSURLs  []string `json:"natsUrls"`
+	Action    string   `json:"action"`
+	MatchedID string   `json:"matchedId,omitempty"`
+}
+
+type ConnectionImportPreviewResult struct {
+	Items     []ConnectionImportPreviewItem `json:"items"`
+	NewCount  int                           `json:"newCount"`
+	Conflicts int                           `json:"conflicts"`
 }

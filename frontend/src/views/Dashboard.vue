@@ -1,32 +1,22 @@
 <script setup>
-import { onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import * as echarts from 'echarts'
-import { getClusterOverview, onConnectionChanged } from '../api/nats'
+import { useI18n } from 'vue-i18n'
+import { getClusterNodeDetail, getClusterOverview, onConnectionChanged } from '../api/nats'
 
 const DASHBOARD_VIEW_STATE_KEY = 'nats-ui-dashboard-view-state'
-const REFRESH_OPTIONS = [
-  { label: '关闭', value: 0 },
-  { label: '5 秒', value: 5000 },
-  { label: '10 秒', value: 10000 },
-  { label: '30 秒', value: 30000 },
-  { label: '60 秒', value: 60000 },
-]
-const WINDOW_OPTIONS = [
-  { label: '12 点', value: 12 },
-  { label: '24 点', value: 24 },
-  { label: '60 点', value: 60 },
-]
-const METRIC_OPTIONS = [
-  { key: 'healthyNodes', label: 'Healthy Nodes', soft: false },
-  { key: 'totalConn', label: 'Total Conn', soft: false },
-  { key: 'totalSubs', label: 'Total Subs', soft: false },
-  { key: 'clusterName', label: 'Cluster', soft: false },
-  { key: 'inBytes', label: 'In Bytes', soft: true },
-  { key: 'outBytes', label: 'Out Bytes', soft: true },
-  { key: 'memoryUsage', label: 'Memory Usage', soft: true },
-  { key: 'slowConsumers', label: 'Slow Consumers', soft: true },
+const METRIC_KEYS = [
+  { key: 'healthyNodes', soft: false },
+  { key: 'totalConn', soft: false },
+  { key: 'totalSubs', soft: false },
+  { key: 'clusterName', soft: false },
+  { key: 'inBytes', soft: true },
+  { key: 'outBytes', soft: true },
+  { key: 'memoryUsage', soft: true },
+  { key: 'slowConsumers', soft: true },
 ]
 
+const { t, locale } = useI18n()
 const overview = ref({
   nodes: [],
   summary: {},
@@ -37,16 +27,101 @@ const overview = ref({
 const loading = ref(false)
 const error = ref('')
 const trafficChartRef = ref()
+const nodeDialogVisible = ref(false)
+const nodeDetailLoading = ref(false)
+const nodeDetailError = ref('')
+const selectedNode = ref(null)
+const connectionDialogVisible = ref(false)
+const selectedConnection = ref(null)
 const settings = reactive({
   autoRefresh: true,
   refreshInterval: 5000,
   maxPoints: 12,
-  visibleMetrics: METRIC_OPTIONS.map((item) => item.key),
+  visibleMetrics: METRIC_KEYS.map((item) => item.key),
 })
 let chart
 let timer
 let unsubscribe
 const trafficTimeline = []
+
+const refreshOptions = computed(() => [
+  { label: t('dashboard.refreshOptions.off'), value: 0 },
+  { label: t('dashboard.refreshOptions.five'), value: 5000 },
+  { label: t('dashboard.refreshOptions.ten'), value: 10000 },
+  { label: t('dashboard.refreshOptions.thirty'), value: 30000 },
+  { label: t('dashboard.refreshOptions.sixty'), value: 60000 },
+])
+const windowOptions = computed(() => [
+  { label: t('dashboard.windowOptions.twelve'), value: 12 },
+  { label: t('dashboard.windowOptions.twentyFour'), value: 24 },
+  { label: t('dashboard.windowOptions.sixty'), value: 60 },
+])
+const metricOptions = computed(() =>
+  METRIC_KEYS.map((item) => ({
+    ...item,
+    label: t(`dashboard.metrics.${item.key}`),
+  })),
+)
+const warningTitle = computed(() => (overview.value.warnings || []).join(locale.value === 'zh-CN' ? '；' : '; '))
+const nodeOverviewItems = computed(() => {
+  if (!selectedNode.value) return []
+  return [
+    { label: t('dashboard.table.node'), value: selectedNode.value.name || '-' },
+    { label: t('dashboard.table.host'), value: selectedNode.value.host || '-' },
+    { label: t('dashboard.table.serverId'), value: selectedNode.value.serverId || '-' },
+    { label: t('dashboard.table.cluster'), value: selectedNode.value.cluster || '-' },
+    { label: t('dashboard.table.version'), value: selectedNode.value.version || '-' },
+    { label: t('dashboard.table.monitorEndpoint'), value: selectedNode.value.monitorEndpoint || '-' },
+    { label: t('dashboard.table.status'), value: formatNodeStatus(selectedNode.value.status) },
+    { label: t('dashboard.table.lastError'), value: selectedNode.value.lastError || '-' },
+  ]
+})
+const nodeMetricItems = computed(() => {
+  if (!selectedNode.value) return []
+  return [
+    { label: t('dashboard.table.connections'), value: selectedNode.value.connections ?? 0 },
+    { label: t('dashboard.table.activeConnections'), value: selectedNode.value.activeConnections ?? 0 },
+    { label: t('dashboard.table.totalConnections'), value: selectedNode.value.totalConnections ?? 0 },
+    { label: t('dashboard.table.subscriptions'), value: selectedNode.value.subscriptions ?? 0 },
+    { label: t('dashboard.table.cpu'), value: selectedNode.value.cpu ?? 0 },
+    { label: t('dashboard.table.memory'), value: formatBytes(selectedNode.value.mem) },
+    { label: t('dashboard.table.slow'), value: selectedNode.value.slowConsumers ?? 0 },
+    { label: t('dashboard.table.inMsgs'), value: selectedNode.value.inMsgs ?? 0 },
+    { label: t('dashboard.table.outMsgs'), value: selectedNode.value.outMsgs ?? 0 },
+    { label: t('dashboard.table.inBytes'), value: formatBytes(selectedNode.value.inBytes) },
+    { label: t('dashboard.table.outBytes'), value: formatBytes(selectedNode.value.outBytes) },
+  ]
+})
+const selectedNodeRaw = computed(() => (selectedNode.value?.rawVarz ? JSON.stringify(selectedNode.value.rawVarz, null, 2) : ''))
+const selectedConnectionAddress = computed(() => {
+  if (!selectedConnection.value) return '-'
+  const { ip, port } = selectedConnection.value
+  if (!ip) return '-'
+  return port ? `${ip}:${port}` : ip
+})
+const connectionOverviewItems = computed(() => {
+  if (!selectedConnection.value) return []
+  return [
+    { label: t('dashboard.table.cid'), value: selectedConnection.value.cid },
+    { label: t('dashboard.table.client'), value: selectedConnection.value.name || '-' },
+    { label: t('dashboard.table.address'), value: selectedConnectionAddress.value },
+    { label: t('dashboard.table.port'), value: selectedConnection.value.port ?? '-' },
+  ]
+})
+const connectionMetricItems = computed(() => {
+  if (!selectedConnection.value) return []
+  return [
+    { label: t('dashboard.table.subscriptions'), value: selectedConnection.value.subs ?? 0 },
+    { label: t('dashboard.table.inMsgs'), value: selectedConnection.value.inMsgs ?? 0 },
+    { label: t('dashboard.table.outMsgs'), value: selectedConnection.value.outMsgs ?? 0 },
+    { label: t('dashboard.table.inBytes'), value: formatBytes(selectedConnection.value.inBytes) },
+    { label: t('dashboard.table.outBytes'), value: formatBytes(selectedConnection.value.outBytes) },
+    { label: t('dashboard.table.pending'), value: formatBytes(selectedConnection.value.pending) },
+  ]
+})
+const selectedConnectionRaw = computed(() =>
+  selectedConnection.value ? JSON.stringify(selectedConnection.value, null, 2) : '',
+)
 
 restoreViewState()
 
@@ -70,6 +145,46 @@ function formatTrafficUnit(value) {
   if (value >= 100) return value.toFixed(0)
   if (value >= 10) return value.toFixed(1).replace(/\.0$/, '')
   return value.toFixed(2).replace(/0+$/, '').replace(/\.$/, '')
+}
+
+function formatNodeStatus(status) {
+  if (status === 'healthy') {
+    return t('dashboard.status.healthy')
+  }
+  if (!status) {
+    return '-'
+  }
+  if (status === 'unhealthy') {
+    return t('dashboard.status.unhealthy')
+  }
+  return status
+}
+
+function openConnectionDetail(row) {
+  selectedConnection.value = { ...row }
+  connectionDialogVisible.value = true
+}
+
+async function openNodeDetail(row) {
+  nodeDialogVisible.value = true
+  nodeDetailLoading.value = true
+  nodeDetailError.value = ''
+  selectedNode.value = {
+    ...row,
+    activeConnections: row.connections ?? 0,
+    totalConnections: row.connections ?? 0,
+  }
+
+  try {
+    if (!row.monitorEndpoint) {
+      throw new Error(t('dashboard.table.monitorEndpoint'))
+    }
+    selectedNode.value = await getClusterNodeDetail(row.monitorEndpoint)
+  } catch (err) {
+    nodeDetailError.value = err.message
+  } finally {
+    nodeDetailLoading.value = false
+  }
 }
 
 const metricValues = {
@@ -108,7 +223,7 @@ function restoreViewState() {
     settings.maxPoints = Number(saved.maxPoints || 12)
     settings.visibleMetrics = Array.isArray(saved.visibleMetrics) && saved.visibleMetrics.length
       ? saved.visibleMetrics
-      : METRIC_OPTIONS.map((item) => item.key)
+      : METRIC_KEYS.map((item) => item.key)
   } catch {
     window.localStorage.removeItem(DASHBOARD_VIEW_STATE_KEY)
   }
@@ -138,7 +253,7 @@ function resetTimer() {
 
 function pushTrafficPoint(traffic) {
   trafficTimeline.push({
-    time: new Date().toLocaleTimeString(),
+    time: new Date().toLocaleTimeString(locale.value === 'zh-CN' ? 'zh-CN' : 'en-US'),
     inBytes: traffic.totalInBytes,
     outBytes: traffic.totalOutBytes,
     inMsgs: traffic.totalInMsgs,
@@ -155,30 +270,51 @@ function renderChart() {
 
   chart.setOption({
     tooltip: { trigger: 'axis' },
-    legend: { data: ['In Bytes', 'Out Bytes', 'In Msgs', 'Out Msgs'] },
+    legend: {
+      data: [
+        t('dashboard.chart.inBytes'),
+        t('dashboard.chart.outBytes'),
+        t('dashboard.chart.inMsgs'),
+        t('dashboard.chart.outMsgs'),
+      ],
+    },
     grid: { left: 30, right: 20, top: 40, bottom: 20, containLabel: true },
     xAxis: { type: 'category', data: trafficTimeline.map((item) => item.time) },
     yAxis: [
-      { type: 'value', name: 'Bytes(kb/M/G)', axisLabel: { formatter: (value) => formatTrafficBytes(value) } },
-      { type: 'value', name: 'Msgs' },
+      {
+        type: 'value',
+        name: t('dashboard.chart.bytesAxis'),
+        axisLabel: { formatter: (value) => formatTrafficBytes(value) },
+      },
+      { type: 'value', name: t('dashboard.chart.msgsAxis') },
     ],
     series: [
       {
-        name: 'In Bytes',
+        name: t('dashboard.chart.inBytes'),
         type: 'line',
         smooth: true,
         tooltip: { valueFormatter: (value) => formatTrafficBytes(value) },
         data: trafficTimeline.map((item) => item.inBytes),
       },
       {
-        name: 'Out Bytes',
+        name: t('dashboard.chart.outBytes'),
         type: 'line',
         smooth: true,
         tooltip: { valueFormatter: (value) => formatTrafficBytes(value) },
         data: trafficTimeline.map((item) => item.outBytes),
       },
-      { name: 'In Msgs', type: 'bar', yAxisIndex: 1, data: trafficTimeline.map((item) => item.inMsgs) },
-      { name: 'Out Msgs', type: 'bar', yAxisIndex: 1, data: trafficTimeline.map((item) => item.outMsgs) },
+      {
+        name: t('dashboard.chart.inMsgs'),
+        type: 'bar',
+        yAxisIndex: 1,
+        data: trafficTimeline.map((item) => item.inMsgs),
+      },
+      {
+        name: t('dashboard.chart.outMsgs'),
+        type: 'bar',
+        yAxisIndex: 1,
+        data: trafficTimeline.map((item) => item.outMsgs),
+      },
     ],
   })
 }
@@ -225,6 +361,13 @@ watch(
   persistViewState,
   { deep: true },
 )
+
+watch(
+  () => locale.value,
+  () => {
+    renderChart()
+  },
+)
 </script>
 
 <template>
@@ -232,7 +375,7 @@ watch(
     <el-alert v-if="error" :title="error" type="error" show-icon class="mb-16" />
     <el-alert
       v-else-if="overview.warnings?.length"
-      :title="overview.warnings.join('；')"
+      :title="warningTitle"
       type="warning"
       show-icon
       :closable="false"
@@ -242,22 +385,22 @@ watch(
     <el-card shadow="never">
       <template #header>
         <div class="card-header">
-          <span>指标卡片</span>
+          <span>{{ t('dashboard.cardsTitle') }}</span>
           <el-select
             v-model="settings.visibleMetrics"
             multiple
             collapse-tags
             collapse-tags-tooltip
             style="width: 360px"
-            placeholder="选择显示指标"
+            :placeholder="t('dashboard.selectMetrics')"
           >
-            <el-option v-for="item in METRIC_OPTIONS" :key="item.key" :label="item.label" :value="item.key" />
+            <el-option v-for="item in metricOptions" :key="item.key" :label="item.label" :value="item.key" />
           </el-select>
         </div>
       </template>
       <div class="stats-grid">
         <div
-          v-for="item in METRIC_OPTIONS.filter((metric) => settings.visibleMetrics.includes(metric.key))"
+          v-for="item in metricOptions.filter((metric) => settings.visibleMetrics.includes(metric.key))"
           :key="item.key"
           class="metric-card"
           :class="{ soft: item.soft }"
@@ -270,33 +413,38 @@ watch(
 
     <el-card shadow="never" class="mb-16">
       <template #header>
-        <span>当前集群摘要</span>
+        <span>{{ t('dashboard.summaryTitle') }}</span>
       </template>
       <el-descriptions :column="4" border>
-        <el-descriptions-item label="Cluster">{{ overview.clusterName || '-' }}</el-descriptions-item>
-        <el-descriptions-item label="Version">{{ overview.version || '-' }}</el-descriptions-item>
-        <el-descriptions-item label="Server ID">{{ overview.serverId || '-' }}</el-descriptions-item>
-        <el-descriptions-item label="Nodes">{{ overview.nodeCount || 0 }}</el-descriptions-item>
-        <el-descriptions-item label="Active Conn">{{ overview.connections.active || 0 }}</el-descriptions-item>
-        <el-descriptions-item label="Total Conn">{{ overview.connections.total || 0 }}</el-descriptions-item>
-        <el-descriptions-item label="In Msgs">{{ overview.traffic.totalInMsgs || 0 }}</el-descriptions-item>
-        <el-descriptions-item label="Out Msgs">{{ overview.traffic.totalOutMsgs || 0 }}</el-descriptions-item>
+        <el-descriptions-item :label="t('dashboard.summary.cluster')">{{ overview.clusterName || '-' }}</el-descriptions-item>
+        <el-descriptions-item :label="t('dashboard.summary.version')">{{ overview.version || '-' }}</el-descriptions-item>
+        <el-descriptions-item :label="t('dashboard.summary.serverId')">{{ overview.serverId || '-' }}</el-descriptions-item>
+        <el-descriptions-item :label="t('dashboard.summary.nodes')">{{ overview.nodeCount || 0 }}</el-descriptions-item>
+        <el-descriptions-item :label="t('dashboard.summary.activeConn')">{{ overview.connections.active || 0 }}</el-descriptions-item>
+        <el-descriptions-item :label="t('dashboard.summary.totalConn')">{{ overview.connections.total || 0 }}</el-descriptions-item>
+        <el-descriptions-item :label="t('dashboard.summary.inMsgs')">{{ overview.traffic.totalInMsgs || 0 }}</el-descriptions-item>
+        <el-descriptions-item :label="t('dashboard.summary.outMsgs')">{{ overview.traffic.totalOutMsgs || 0 }}</el-descriptions-item>
       </el-descriptions>
     </el-card>
 
     <el-card shadow="never" class="mb-16">
       <template #header>
         <div class="card-header">
-          <span>实时流量</span>
+          <span>{{ t('dashboard.trafficTitle') }}</span>
           <div class="data-toolbar">
-            <el-switch v-model="settings.autoRefresh" inline-prompt active-text="自动" inactive-text="手动" />
+            <el-switch
+              v-model="settings.autoRefresh"
+              inline-prompt
+              :active-text="t('dashboard.auto')"
+              :inactive-text="t('dashboard.manual')"
+            />
             <el-select v-model="settings.refreshInterval" :disabled="!settings.autoRefresh" style="width: 120px">
-              <el-option v-for="item in REFRESH_OPTIONS" :key="item.value" :label="item.label" :value="item.value" />
+              <el-option v-for="item in refreshOptions" :key="item.value" :label="item.label" :value="item.value" />
             </el-select>
             <el-select v-model="settings.maxPoints" style="width: 120px">
-              <el-option v-for="item in WINDOW_OPTIONS" :key="item.value" :label="item.label" :value="item.value" />
+              <el-option v-for="item in windowOptions" :key="item.value" :label="item.label" :value="item.value" />
             </el-select>
-            <el-button :loading="loading" text @click="loadOverview">刷新</el-button>
+            <el-button :loading="loading" text @click="loadOverview">{{ t('common.refresh') }}</el-button>
           </div>
         </div>
       </template>
@@ -305,54 +453,145 @@ watch(
 
     <el-card shadow="never" class="mb-16">
       <template #header>
-        <span>集群节点状态</span>
+        <div class="card-header">
+          <span>{{ t('dashboard.nodeStatusTitle') }}</span>
+          <span class="table-tip">{{ t('dashboard.nodeHint') }}</span>
+        </div>
       </template>
-      <el-table :data="overview.nodes || []" stripe empty-text="暂无节点监控数据">
-        <el-table-column prop="name" label="节点" min-width="120" />
-        <el-table-column prop="host" label="Host" min-width="120" />
-        <el-table-column prop="version" label="Version" width="120" />
-        <el-table-column prop="connections" label="连接数" width="100" />
-        <el-table-column label="内存" width="120">
+      <el-table :data="overview.nodes || []" stripe :empty-text="t('dashboard.nodeEmpty')" @row-dblclick="openNodeDetail">
+        <el-table-column prop="name" :label="t('dashboard.table.node')" min-width="120" />
+        <el-table-column prop="host" :label="t('dashboard.table.host')" min-width="120" />
+        <el-table-column prop="version" :label="t('dashboard.table.version')" width="120" />
+        <el-table-column prop="connections" :label="t('dashboard.table.connections')" width="100" />
+        <el-table-column :label="t('dashboard.table.memory')" width="120">
           <template #default="{ row }">{{ formatBytes(row.mem) }}</template>
         </el-table-column>
-        <el-table-column prop="cpu" label="CPU" width="100" />
-        <el-table-column prop="slowConsumers" label="Slow" width="90" />
-        <el-table-column prop="inMsgs" label="In Msgs" width="120" />
-        <el-table-column prop="outMsgs" label="Out Msgs" width="120" />
-        <el-table-column label="In Bytes" width="120">
+        <el-table-column prop="cpu" :label="t('dashboard.table.cpu')" width="100" />
+        <el-table-column prop="slowConsumers" :label="t('dashboard.table.slow')" width="110" />
+        <el-table-column prop="inMsgs" :label="t('dashboard.table.inMsgs')" width="120" />
+        <el-table-column prop="outMsgs" :label="t('dashboard.table.outMsgs')" width="120" />
+        <el-table-column :label="t('dashboard.table.inBytes')" width="120">
           <template #default="{ row }">{{ formatBytes(row.inBytes) }}</template>
         </el-table-column>
-        <el-table-column label="Out Bytes" width="120">
+        <el-table-column :label="t('dashboard.table.outBytes')" width="120">
           <template #default="{ row }">{{ formatBytes(row.outBytes) }}</template>
         </el-table-column>
-        <el-table-column prop="status" label="状态" width="100">
+        <el-table-column prop="status" :label="t('dashboard.table.status')" width="100">
           <template #default="{ row }">
-            <el-tag :type="row.status === 'healthy' ? 'success' : 'danger'">{{ row.status }}</el-tag>
+            <el-tag :type="row.status === 'healthy' ? 'success' : 'danger'">{{ formatNodeStatus(row.status) }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="lastError" label="错误信息" min-width="320" show-overflow-tooltip />
+        <el-table-column prop="lastError" :label="t('dashboard.table.lastError')" min-width="320" show-overflow-tooltip />
       </el-table>
     </el-card>
 
     <el-card shadow="never">
       <template #header>
-        <span>连接明细</span>
+        <div class="card-header">
+          <span>{{ t('dashboard.connectionDetailsTitle') }}</span>
+          <span class="table-tip">{{ t('dashboard.connectionHint') }}</span>
+        </div>
       </template>
-      <el-table :data="overview.connections.items || []" stripe empty-text="暂无连接监控数据">
-        <el-table-column prop="cid" label="CID" width="90" />
-        <el-table-column prop="name" label="客户端" min-width="160" />
-        <el-table-column prop="ip" label="IP" width="140" />
-        <el-table-column prop="subs" label="订阅数" width="100" />
-        <el-table-column prop="inMsgs" label="In Msgs" width="110" />
-        <el-table-column prop="outMsgs" label="Out Msgs" width="110" />
-        <el-table-column label="In Bytes" width="120">
+      <el-table
+        :data="overview.connections.items || []"
+        stripe
+        :empty-text="t('dashboard.connectionEmpty')"
+        @row-dblclick="openConnectionDetail"
+      >
+        <el-table-column prop="cid" :label="t('dashboard.table.cid')" width="90" />
+        <el-table-column prop="name" :label="t('dashboard.table.client')" min-width="160" />
+        <el-table-column prop="ip" :label="t('dashboard.table.ip')" width="140" />
+        <el-table-column prop="subs" :label="t('dashboard.table.subscriptions')" width="100" />
+        <el-table-column prop="inMsgs" :label="t('dashboard.table.inMsgs')" width="110" />
+        <el-table-column prop="outMsgs" :label="t('dashboard.table.outMsgs')" width="110" />
+        <el-table-column :label="t('dashboard.table.inBytes')" width="120">
           <template #default="{ row }">{{ formatBytes(row.inBytes) }}</template>
         </el-table-column>
-        <el-table-column label="Out Bytes" width="120">
+        <el-table-column :label="t('dashboard.table.outBytes')" width="120">
           <template #default="{ row }">{{ formatBytes(row.outBytes) }}</template>
         </el-table-column>
-        <el-table-column prop="pending" label="Pending" width="120" />
+        <el-table-column prop="pending" :label="t('dashboard.table.pending')" width="120" />
       </el-table>
     </el-card>
   </div>
+
+  <el-dialog
+    v-model="nodeDialogVisible"
+    :title="t('dashboard.nodeDialog.title')"
+    width="820px"
+    destroy-on-close
+  >
+    <div v-loading="nodeDetailLoading">
+      <el-alert v-if="nodeDetailError" :title="nodeDetailError" type="error" show-icon class="mb-16" />
+
+      <template v-if="selectedNode">
+        <el-card shadow="never" class="mb-16">
+          <template #header>
+            <span>{{ t('dashboard.nodeDialog.overview') }}</span>
+          </template>
+          <el-descriptions :column="2" border>
+            <el-descriptions-item v-for="item in nodeOverviewItems" :key="item.label" :label="item.label">
+              {{ item.value }}
+            </el-descriptions-item>
+          </el-descriptions>
+        </el-card>
+
+        <el-card shadow="never" class="mb-16">
+          <template #header>
+            <span>{{ t('dashboard.nodeDialog.metrics') }}</span>
+          </template>
+          <el-descriptions :column="2" border>
+            <el-descriptions-item v-for="item in nodeMetricItems" :key="item.label" :label="item.label">
+              {{ item.value }}
+            </el-descriptions-item>
+          </el-descriptions>
+        </el-card>
+
+        <el-card v-if="selectedNodeRaw" shadow="never">
+          <template #header>
+            <span>{{ t('dashboard.nodeDialog.raw') }}</span>
+          </template>
+          <el-input :model-value="selectedNodeRaw" type="textarea" :rows="12" readonly />
+        </el-card>
+      </template>
+    </div>
+  </el-dialog>
+
+  <el-dialog
+    v-model="connectionDialogVisible"
+    :title="t('dashboard.connectionDialog.title')"
+    width="760px"
+    destroy-on-close
+  >
+    <template v-if="selectedConnection">
+      <el-card shadow="never" class="mb-16">
+        <template #header>
+          <span>{{ t('dashboard.connectionDialog.overview') }}</span>
+        </template>
+        <el-descriptions :column="2" border>
+          <el-descriptions-item v-for="item in connectionOverviewItems" :key="item.label" :label="item.label">
+            {{ item.value }}
+          </el-descriptions-item>
+        </el-descriptions>
+      </el-card>
+
+      <el-card shadow="never" class="mb-16">
+        <template #header>
+          <span>{{ t('dashboard.connectionDialog.metrics') }}</span>
+        </template>
+        <el-descriptions :column="2" border>
+          <el-descriptions-item v-for="item in connectionMetricItems" :key="item.label" :label="item.label">
+            {{ item.value }}
+          </el-descriptions-item>
+        </el-descriptions>
+      </el-card>
+
+      <el-card shadow="never">
+        <template #header>
+          <span>{{ t('dashboard.connectionDialog.raw') }}</span>
+        </template>
+        <el-input :model-value="selectedConnectionRaw" type="textarea" :rows="10" readonly />
+      </el-card>
+    </template>
+  </el-dialog>
 </template>

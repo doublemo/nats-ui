@@ -1,4 +1,5 @@
 import axios from 'axios'
+import i18n from '../i18n'
 
 const ACTIVE_CONNECTION_KEY = 'nats-ui-active-connection'
 const CONNECTION_EVENT = 'nats-ui-connection-changed'
@@ -30,7 +31,7 @@ http.interceptors.request.use((config) => {
 http.interceptors.response.use(
   (response) => response.data?.data,
   (error) => {
-    const message = error.response?.data?.message || error.message || '请求失败'
+    const message = error.response?.data?.message || error.message || i18n.global.t('common.requestFailed')
     return Promise.reject(new Error(message))
   },
 )
@@ -99,6 +100,10 @@ export function discoverMonitorEndpoints(natsUrls) {
 
 export function getClusterOverview() {
   return http.get('/cluster/overview')
+}
+
+export function getClusterNodeDetail(endpoint) {
+  return http.get('/cluster/node-detail', { params: { endpoint } })
 }
 
 export function getStreams(params) {

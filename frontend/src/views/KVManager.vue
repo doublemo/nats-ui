@@ -1,6 +1,7 @@
 <script setup>
-import { onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { useI18n } from 'vue-i18n'
 import {
   batchDeleteBucketEntries,
   batchDeleteBuckets,
@@ -15,6 +16,7 @@ import {
 
 const KV_VIEW_STATE_KEY = 'nats-ui-kv-view-state'
 
+const { t } = useI18n()
 const buckets = ref([])
 const bucketTotal = ref(0)
 const selectedBucket = ref('')
@@ -29,6 +31,8 @@ const bucketPage = ref(1)
 const bucketPageSize = ref(8)
 const entryPage = ref(1)
 const entryPageSize = ref(10)
+const bucketKeyword = ref('')
+const entryKeyword = ref('')
 const bucketForm = reactive({
   name: '',
   description: '',
@@ -41,10 +45,20 @@ const entryForm = reactive({
   value: '',
 })
 
+const bucketHeader = computed(() =>
+  t('kv.currentBucket', {
+    name: selectedBucket.value || t('kv.noBucketSelected'),
+  }),
+)
+
 restoreViewState()
 
 async function loadBuckets() {
-  const data = await getBuckets({ page: bucketPage.value, pageSize: bucketPageSize.value })
+  const data = await getBuckets({
+    page: bucketPage.value,
+    pageSize: bucketPageSize.value,
+    keyword: bucketKeyword.value || undefined,
+  })
   buckets.value = data.items
   bucketTotal.value = data.total
   if (!selectedBucket.value && buckets.value.length > 0) {
@@ -62,6 +76,8 @@ function restoreViewState() {
     bucketPageSize.value = saved.bucketPageSize || 8
     entryPage.value = saved.entryPage || 1
     entryPageSize.value = saved.entryPageSize || 10
+    bucketKeyword.value = saved.bucketKeyword || ''
+    entryKeyword.value = saved.entryKeyword || ''
   } catch {
     window.localStorage.removeItem(KV_VIEW_STATE_KEY)
   }
@@ -76,6 +92,8 @@ function persistViewState() {
       bucketPageSize: bucketPageSize.value,
       entryPage: entryPage.value,
       entryPageSize: entryPageSize.value,
+      bucketKeyword: bucketKeyword.value,
+      entryKeyword: entryKeyword.value,
     }),
   )
 }
@@ -87,7 +105,11 @@ async function loadEntries() {
   }
   loading.value = true
   try {
-    const data = await getBucketEntries(selectedBucket.value, { page: entryPage.value, pageSize: entryPageSize.value })
+    const data = await getBucketEntries(selectedBucket.value, {
+      page: entryPage.value,
+      pageSize: entryPageSize.value,
+      keyword: entryKeyword.value || undefined,
+    })
     entries.value = data.items
     entryTotal.value = data.total
   } finally {
@@ -97,22 +119,22 @@ async function loadEntries() {
 
 async function submitBucket() {
   await createBucket(bucketForm)
-  ElMessage.success('Bucket 创建成功')
+  ElMessage.success(t('kv.messages.createBucketSuccess'))
   bucketDialog.value = false
   await loadBuckets()
 }
 
 async function submitEntry() {
   await putBucketEntry(selectedBucket.value, entryForm.key, entryForm.value)
-  ElMessage.success('键值已保存')
+  ElMessage.success(t('kv.messages.saveEntrySuccess'))
   entryDialog.value = false
   await loadEntries()
 }
 
 async function removeBucket(name) {
-  await ElMessageBox.confirm(`确认删除 Bucket ${name} ?`, '提示', { type: 'warning' })
+  await ElMessageBox.confirm(t('kv.messages.deleteBucketConfirm', { name }), t('common.prompt'), { type: 'warning' })
   await deleteBucket(name)
-  ElMessage.success('Bucket 已删除')
+  ElMessage.success(t('kv.messages.bucketDeletedSuccess'))
   if (selectedBucket.value === name) {
     selectedBucket.value = ''
   }
@@ -121,18 +143,22 @@ async function removeBucket(name) {
 }
 
 async function removeEntry(key) {
-  await ElMessageBox.confirm(`确认删除键 ${key} ?`, '提示', { type: 'warning' })
+  await ElMessageBox.confirm(t('kv.messages.deleteEntryConfirm', { key }), t('common.prompt'), { type: 'warning' })
   await deleteBucketEntry(selectedBucket.value, key)
-  ElMessage.success('键已删除')
+  ElMessage.success(t('kv.messages.entryDeletedSuccess'))
   await loadEntries()
 }
 
 async function removeSelectedBuckets() {
   if (!selectedBucketRows.value.length) {
-    ElMessage.warning('请先选择 Bucket')
+    ElMessage.warning(t('kv.messages.selectBucketWarning'))
     return
   }
-  await ElMessageBox.confirm(`确认批量删除 ${selectedBucketRows.value.length} 个 Bucket ?`, '提示', { type: 'warning' })
+  await ElMessageBox.confirm(
+    t('kv.messages.batchDeleteBucketsConfirm', { count: selectedBucketRows.value.length }),
+    t('common.prompt'),
+    { type: 'warning' },
+  )
   const names = selectedBucketRows.value.map((row) => row.name)
   const result = await batchDeleteBuckets(names)
   if (names.includes(selectedBucket.value)) {
@@ -141,19 +167,23 @@ async function removeSelectedBuckets() {
   selectedBucketRows.value = []
   await loadBuckets()
   await loadEntries()
-  ElMessage.success(`批量删除完成，成功 ${result.deleted}，失败 ${result.failed}`)
+  ElMessage.success(t('kv.messages.batchDeleteBucketsSummary', { deleted: result.deleted, failed: result.failed }))
 }
 
 async function removeSelectedEntries() {
   if (!selectedEntryRows.value.length || !selectedBucket.value) {
-    ElMessage.warning('请先选择键值')
+    ElMessage.warning(t('kv.messages.selectEntryWarning'))
     return
   }
-  await ElMessageBox.confirm(`确认批量删除 ${selectedEntryRows.value.length} 个键 ?`, '提示', { type: 'warning' })
+  await ElMessageBox.confirm(
+    t('kv.messages.batchDeleteEntriesConfirm', { count: selectedEntryRows.value.length }),
+    t('common.prompt'),
+    { type: 'warning' },
+  )
   const result = await batchDeleteBucketEntries(selectedBucket.value, selectedEntryRows.value.map((row) => row.key))
   selectedEntryRows.value = []
   await loadEntries()
-  ElMessage.success(`批量删除完成，成功 ${result.deleted}，失败 ${result.failed}`)
+  ElMessage.success(t('kv.messages.batchDeleteEntriesSummary', { deleted: result.deleted, failed: result.failed }))
 }
 
 function openEntryDialog(row) {
@@ -179,6 +209,15 @@ watch(bucketPage, async () => {
   await loadBuckets()
 })
 
+watch(bucketKeyword, async () => {
+  selectedBucketRows.value = []
+  if (bucketPage.value !== 1) {
+    bucketPage.value = 1
+    return
+  }
+  await loadBuckets()
+})
+
 watch(entryPageSize, async () => {
   entryPage.value = 1
   selectedEntryRows.value = []
@@ -187,6 +226,15 @@ watch(entryPageSize, async () => {
 
 watch(entryPage, async () => {
   selectedEntryRows.value = []
+  await loadEntries()
+})
+
+watch(entryKeyword, async () => {
+  selectedEntryRows.value = []
+  if (entryPage.value !== 1) {
+    entryPage.value = 1
+    return
+  }
   await loadEntries()
 })
 
@@ -210,7 +258,15 @@ onBeforeUnmount(() => {
 })
 
 watch(
-  () => [selectedBucket.value, bucketPage.value, bucketPageSize.value, entryPage.value, entryPageSize.value],
+  () => [
+    selectedBucket.value,
+    bucketPage.value,
+    bucketPageSize.value,
+    entryPage.value,
+    entryPageSize.value,
+    bucketKeyword.value,
+    entryKeyword.value,
+  ],
   persistViewState,
   { deep: true },
 )
@@ -221,25 +277,26 @@ watch(
     <el-card shadow="never" class="split-side">
       <template #header>
         <div class="card-header">
-          <span>KV Buckets</span>
+          <span>{{ t('kv.buckets') }}</span>
           <div class="data-toolbar">
-            <el-button type="danger" plain @click="removeSelectedBuckets">批量删除</el-button>
-            <el-button type="primary" @click="bucketDialog = true">新建</el-button>
+            <el-button type="danger" plain @click="removeSelectedBuckets">{{ t('kv.batchDelete') }}</el-button>
+            <el-button type="primary" @click="bucketDialog = true">{{ t('kv.create') }}</el-button>
           </div>
         </div>
       </template>
+      <el-input v-model="bucketKeyword" :placeholder="t('kv.bucketSearchPlaceholder')" clearable class="mb-16" />
       <el-table :data="buckets" stripe @selection-change="selectedBucketRows = $event">
         <el-table-column type="selection" width="46" />
-        <el-table-column prop="name" label="Bucket" min-width="130">
+        <el-table-column prop="name" :label="t('kv.buckets')" min-width="130">
           <template #default="{ row }">
             <el-link type="primary" @click="selectedBucket = row.name">{{ row.name }}</el-link>
           </template>
         </el-table-column>
-        <el-table-column prop="values" label="键数量" width="90" />
-        <el-table-column prop="storage" label="存储" width="90" />
-        <el-table-column label="操作" width="90">
+        <el-table-column prop="values" :label="t('kv.keyCount')" width="90" />
+        <el-table-column prop="storage" :label="t('kv.storage')" width="90" />
+        <el-table-column :label="t('kv.actions')" width="90">
           <template #default="{ row }">
-            <el-button text type="danger" @click="removeBucket(row.name)">删除</el-button>
+            <el-button text type="danger" @click="removeBucket(row.name)">{{ t('common.delete') }}</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -257,24 +314,31 @@ watch(
     <el-card shadow="never" class="split-main">
       <template #header>
         <div class="card-header">
-          <span>Bucket: {{ selectedBucket || '未选择' }}</span>
+          <span>{{ bucketHeader }}</span>
           <div class="data-toolbar">
-            <el-button type="danger" plain :disabled="!selectedBucket" @click="removeSelectedEntries">批量删除</el-button>
-            <el-button type="primary" :disabled="!selectedBucket" @click="openEntryDialog()">新增键值</el-button>
+            <el-button type="danger" plain :disabled="!selectedBucket" @click="removeSelectedEntries">{{ t('kv.batchDelete') }}</el-button>
+            <el-button type="primary" :disabled="!selectedBucket" @click="openEntryDialog()">{{ t('kv.createEntry') }}</el-button>
           </div>
         </div>
       </template>
+      <el-input
+        v-model="entryKeyword"
+        :placeholder="t('kv.entrySearchPlaceholder')"
+        clearable
+        class="mb-16"
+        :disabled="!selectedBucket"
+      />
 
       <el-table :data="entries" stripe v-loading="loading" @selection-change="selectedEntryRows = $event">
         <el-table-column type="selection" width="46" />
-        <el-table-column prop="key" label="Key" min-width="180" />
-        <el-table-column prop="value" label="Value" min-width="240" show-overflow-tooltip />
-        <el-table-column prop="revision" label="Revision" width="100" />
-        <el-table-column prop="createdAt" label="更新时间" width="180" />
-        <el-table-column label="操作" width="150">
+        <el-table-column prop="key" :label="t('kv.entryKey')" min-width="180" />
+        <el-table-column prop="value" :label="t('kv.entryValue')" min-width="240" show-overflow-tooltip />
+        <el-table-column prop="revision" :label="t('kv.revision')" width="100" />
+        <el-table-column prop="createdAt" :label="t('kv.updatedAt')" width="180" />
+        <el-table-column :label="t('kv.actions')" width="150">
           <template #default="{ row }">
-            <el-button text type="primary" @click="openEntryDialog(row)">编辑</el-button>
-            <el-button text type="danger" @click="removeEntry(row.key)">删除</el-button>
+            <el-button text type="primary" @click="openEntryDialog(row)">{{ t('common.edit') }}</el-button>
+            <el-button text type="danger" @click="removeEntry(row.key)">{{ t('common.delete') }}</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -289,18 +353,18 @@ watch(
       </div>
     </el-card>
 
-    <el-dialog v-model="bucketDialog" title="创建 Bucket" width="520px">
+    <el-dialog v-model="bucketDialog" :title="t('kv.createBucketDialogTitle')" width="520px">
       <el-form label-width="100px">
-        <el-form-item label="名称">
+        <el-form-item :label="t('kv.fields.name')">
           <el-input v-model="bucketForm.name" />
         </el-form-item>
-        <el-form-item label="描述">
+        <el-form-item :label="t('kv.fields.description')">
           <el-input v-model="bucketForm.description" />
         </el-form-item>
-        <el-form-item label="History">
+        <el-form-item :label="t('kv.fields.history')">
           <el-input-number v-model="bucketForm.history" :min="1" :max="64" />
         </el-form-item>
-        <el-form-item label="存储类型">
+        <el-form-item :label="t('kv.fields.storageType')">
           <el-select v-model="bucketForm.storage" style="width: 100%">
             <el-option label="File" value="file" />
             <el-option label="Memory" value="memory" />
@@ -308,23 +372,23 @@ watch(
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="bucketDialog = false">取消</el-button>
-        <el-button type="primary" @click="submitBucket">创建</el-button>
+        <el-button @click="bucketDialog = false">{{ t('common.cancel') }}</el-button>
+        <el-button type="primary" @click="submitBucket">{{ t('common.create') }}</el-button>
       </template>
     </el-dialog>
 
-    <el-dialog v-model="entryDialog" title="新增 / 编辑键值" width="560px">
+    <el-dialog v-model="entryDialog" :title="t('kv.entryDialogTitle')" width="560px">
       <el-form label-width="90px">
-        <el-form-item label="Key">
+        <el-form-item :label="t('kv.fields.key')">
           <el-input v-model="entryForm.key" />
         </el-form-item>
-        <el-form-item label="Value">
+        <el-form-item :label="t('kv.fields.value')">
           <el-input v-model="entryForm.value" type="textarea" :rows="8" />
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="entryDialog = false">取消</el-button>
-        <el-button type="primary" @click="submitEntry">保存</el-button>
+        <el-button @click="entryDialog = false">{{ t('common.cancel') }}</el-button>
+        <el-button type="primary" @click="submitEntry">{{ t('common.save') }}</el-button>
       </template>
     </el-dialog>
   </div>

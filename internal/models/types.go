@@ -19,20 +19,45 @@ type ClusterOverview struct {
 }
 
 type ClusterNode struct {
-	Name          string  `json:"name"`
-	Host          string  `json:"host"`
-	Version       string  `json:"version"`
-	Cluster       string  `json:"cluster"`
-	CPU           float64 `json:"cpu"`
-	Mem           int64   `json:"mem"`
-	Connections   int     `json:"connections"`
-	InMsgs        int64   `json:"inMsgs"`
-	OutMsgs       int64   `json:"outMsgs"`
-	InBytes       int64   `json:"inBytes"`
-	OutBytes      int64   `json:"outBytes"`
-	SlowConsumers int64   `json:"slowConsumers"`
-	Status        string  `json:"status"`
-	LastError     string  `json:"lastError,omitempty"`
+	ServerID        string  `json:"serverId,omitempty"`
+	MonitorEndpoint string  `json:"monitorEndpoint,omitempty"`
+	Name            string  `json:"name"`
+	Host            string  `json:"host"`
+	Version         string  `json:"version"`
+	Cluster         string  `json:"cluster"`
+	CPU             float64 `json:"cpu"`
+	Mem             int64   `json:"mem"`
+	Connections     int     `json:"connections"`
+	InMsgs          int64   `json:"inMsgs"`
+	OutMsgs         int64   `json:"outMsgs"`
+	InBytes         int64   `json:"inBytes"`
+	OutBytes        int64   `json:"outBytes"`
+	SlowConsumers   int64   `json:"slowConsumers"`
+	Status          string  `json:"status"`
+	LastError       string  `json:"lastError,omitempty"`
+}
+
+type ClusterNodeDetail struct {
+	ServerID          string                 `json:"serverId,omitempty"`
+	MonitorEndpoint   string                 `json:"monitorEndpoint"`
+	Name              string                 `json:"name"`
+	Host              string                 `json:"host"`
+	Version           string                 `json:"version,omitempty"`
+	Cluster           string                 `json:"cluster,omitempty"`
+	CPU               float64                `json:"cpu"`
+	Mem               int64                  `json:"mem"`
+	Connections       int                    `json:"connections"`
+	Subscriptions     int64                  `json:"subscriptions"`
+	InMsgs            int64                  `json:"inMsgs"`
+	OutMsgs           int64                  `json:"outMsgs"`
+	InBytes           int64                  `json:"inBytes"`
+	OutBytes          int64                  `json:"outBytes"`
+	SlowConsumers     int64                  `json:"slowConsumers"`
+	ActiveConnections int                    `json:"activeConnections"`
+	TotalConnections  int                    `json:"totalConnections"`
+	Status            string                 `json:"status"`
+	LastError         string                 `json:"lastError,omitempty"`
+	RawVarz           map[string]interface{} `json:"rawVarz,omitempty"`
 }
 
 type ClusterSummary struct {

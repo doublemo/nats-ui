@@ -22,9 +22,11 @@
   "build": {
     "appId": "com.doublemo.nats-ui",
     "productName": "NATS-UI",
+    "copyright": "Copyright © 2026 doublemo. Licensed under the MIT License.",
     "asar": true,
     "directories": {
-      "output": "release"
+      "output": "release",
+      "buildResources": "build"
     },
     "files": [
       "desktop/**/*",
@@ -47,12 +49,14 @@
       }
     ],
     "win": {
+      "icon": "build/icon.ico",
       "target": [
         "nsis",
         "portable"
       ]
     },
     "mac": {
+      "icon": "build/icon.png",
       "target": [
         "dmg",
         "zip"
@@ -60,6 +64,7 @@
       "category": "public.app-category.developer-tools"
     },
     "linux": {
+      "icon": "build/icons",
       "target": [
         "AppImage",
         "deb",

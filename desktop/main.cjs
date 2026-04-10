@@ -29,6 +29,13 @@ function getFrontendEntry() {
   return path.join(process.resourcesPath, 'frontend', 'dist', 'index.html')
 }
 
+function getWindowIconPath() {
+  if (isDevelopment()) {
+    return path.join(app.getAppPath(), 'frontend', 'dist', 'favicon.png')
+  }
+  return path.join(process.resourcesPath, 'frontend', 'dist', 'favicon.png')
+}
+
 function resolveBackendBinaryName() {
   const extension = process.platform === 'win32' ? '.exe' : ''
   return `nats-ui-backend-${process.platform}-${process.arch}${extension}`
@@ -203,6 +210,7 @@ async function createMainWindow() {
     show: false,
     backgroundColor: '#f5f7fb',
     autoHideMenuBar: true,
+    icon: fs.existsSync(getWindowIconPath()) ? getWindowIconPath() : undefined,
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,

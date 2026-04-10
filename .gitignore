@@ -723,3 +723,4 @@ frontend/dist/
 desktop/bin/*
 !desktop/bin/.gitkeep
 release/
+build/

@@ -3,8 +3,11 @@
   "private": true,
   "version": "0.1.0",
   "description": "Desktop wrapper for NATS UI",
+  "author": "doublemo",
+  "license": "MIT",
   "main": "desktop/main.cjs",
   "scripts": {
+    "assets:icons": "powershell -ExecutionPolicy Bypass -File scripts/generate-app-icons.ps1",
     "desktop:build:frontend": "npm --prefix frontend run build",
     "desktop:build:backend": "node desktop/scripts/build-backend.mjs",
     "desktop:build:backend:all": "node desktop/scripts/build-backend.mjs --all",
@@ -49,22 +52,35 @@
       }
     ],
     "win": {
-      "icon": "build/icon.ico",
+      "icon": "icon.ico",
       "target": [
         "nsis",
         "portable"
       ]
     },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "installerSidebar": "installer/installerSidebar.bmp",
+      "uninstallerSidebar": "installer/uninstallerSidebar.bmp",
+      "installerIcon": "installerIcon.ico",
+      "uninstallerIcon": "uninstallerIcon.ico",
+      "installerHeaderIcon": "installerHeaderIcon.ico",
+      "license": "license.txt"
+    },
     "mac": {
-      "icon": "build/icon.png",
+      "icon": "icon.png",
       "target": [
         "dmg",
         "zip"
       ],
       "category": "public.app-category.developer-tools"
     },
+    "dmg": {
+      "background": "installer/background.png"
+    },
     "linux": {
-      "icon": "build/icons",
+      "icon": "icons",
       "target": [
         "AppImage",
         "deb",

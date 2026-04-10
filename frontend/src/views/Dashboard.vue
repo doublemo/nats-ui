@@ -58,6 +58,20 @@ function formatBytes(value) {
   return `${(size / 1024 ** 3).toFixed(2)} GB`
 }
 
+function formatTrafficBytes(value) {
+  const size = Number(value || 0)
+  if (size < 1024) return `${size} B`
+  if (size < 1024 ** 2) return `${formatTrafficUnit(size / 1024)} kb`
+  if (size < 1024 ** 3) return `${formatTrafficUnit(size / 1024 ** 2)} M`
+  return `${formatTrafficUnit(size / 1024 ** 3)} G`
+}
+
+function formatTrafficUnit(value) {
+  if (value >= 100) return value.toFixed(0)
+  if (value >= 10) return value.toFixed(1).replace(/\.0$/, '')
+  return value.toFixed(2).replace(/0+$/, '').replace(/\.$/, '')
+}
+
 const metricValues = {
   healthyNodes: () => overview.value.summary.healthyNodes || 0,
   totalConn: () => overview.value.summary.totalConn || 0,
@@ -145,12 +159,24 @@ function renderChart() {
     grid: { left: 30, right: 20, top: 40, bottom: 20, containLabel: true },
     xAxis: { type: 'category', data: trafficTimeline.map((item) => item.time) },
     yAxis: [
-      { type: 'value', name: 'Bytes' },
+      { type: 'value', name: 'Bytes(kb/M/G)', axisLabel: { formatter: (value) => formatTrafficBytes(value) } },
       { type: 'value', name: 'Msgs' },
     ],
     series: [
-      { name: 'In Bytes', type: 'line', smooth: true, data: trafficTimeline.map((item) => item.inBytes) },
-      { name: 'Out Bytes', type: 'line', smooth: true, data: trafficTimeline.map((item) => item.outBytes) },
+      {
+        name: 'In Bytes',
+        type: 'line',
+        smooth: true,
+        tooltip: { valueFormatter: (value) => formatTrafficBytes(value) },
+        data: trafficTimeline.map((item) => item.inBytes),
+      },
+      {
+        name: 'Out Bytes',
+        type: 'line',
+        smooth: true,
+        tooltip: { valueFormatter: (value) => formatTrafficBytes(value) },
+        data: trafficTimeline.map((item) => item.outBytes),
+      },
       { name: 'In Msgs', type: 'bar', yAxisIndex: 1, data: trafficTimeline.map((item) => item.inMsgs) },
       { name: 'Out Msgs', type: 'bar', yAxisIndex: 1, data: trafficTimeline.map((item) => item.outMsgs) },
     ],

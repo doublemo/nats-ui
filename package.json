@@ -21,7 +21,7 @@
   },
   "build": {
     "appId": "com.doublemo.nats-ui",
-    "productName": "NATS UI",
+    "productName": "NATS-UI",
     "asar": true,
     "directories": {
       "output": "release"

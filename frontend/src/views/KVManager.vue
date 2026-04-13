@@ -25,6 +25,7 @@ const selectedEntryRows = ref([])
 const entries = ref([])
 const entryTotal = ref(0)
 const loading = ref(false)
+const refreshing = ref(false)
 const bucketDialog = ref(false)
 const entryDialog = ref(false)
 const bucketPage = ref(1)
@@ -101,6 +102,7 @@ function persistViewState() {
 async function loadEntries() {
   if (!selectedBucket.value) {
     entries.value = []
+    entryTotal.value = 0
     return
   }
   loading.value = true
@@ -117,6 +119,16 @@ async function loadEntries() {
   }
 }
 
+async function refreshData() {
+  refreshing.value = true
+  try {
+    await loadBuckets()
+    await loadEntries()
+  } finally {
+    refreshing.value = false
+  }
+}
+
 async function submitBucket() {
   await createBucket(bucketForm)
   ElMessage.success(t('kv.messages.createBucketSuccess'))
@@ -128,6 +140,7 @@ async function submitEntry() {
   await putBucketEntry(selectedBucket.value, entryForm.key, entryForm.value)
   ElMessage.success(t('kv.messages.saveEntrySuccess'))
   entryDialog.value = false
+  await loadBuckets()
   await loadEntries()
 }
 
@@ -146,6 +159,7 @@ async function removeEntry(key) {
   await ElMessageBox.confirm(t('kv.messages.deleteEntryConfirm', { key }), t('common.prompt'), { type: 'warning' })
   await deleteBucketEntry(selectedBucket.value, key)
   ElMessage.success(t('kv.messages.entryDeletedSuccess'))
+  await loadBuckets()
   await loadEntries()
 }
 
@@ -182,6 +196,7 @@ async function removeSelectedEntries() {
   )
   const result = await batchDeleteBucketEntries(selectedBucket.value, selectedEntryRows.value.map((row) => row.key))
   selectedEntryRows.value = []
+  await loadBuckets()
   await loadEntries()
   ElMessage.success(t('kv.messages.batchDeleteEntriesSummary', { deleted: result.deleted, failed: result.failed }))
 }
@@ -239,8 +254,7 @@ watch(entryKeyword, async () => {
 })
 
 onMounted(async () => {
-  await loadBuckets()
-  await loadEntries()
+  await refreshData()
   unsubscribe = onConnectionChanged(async () => {
     selectedBucket.value = ''
     entries.value = []
@@ -248,8 +262,7 @@ onMounted(async () => {
     selectedEntryRows.value = []
     bucketPage.value = 1
     entryPage.value = 1
-    await loadBuckets()
-    await loadEntries()
+    await refreshData()
   })
 })
 
@@ -279,6 +292,7 @@ watch(
         <div class="card-header">
           <span>{{ t('kv.buckets') }}</span>
           <div class="data-toolbar">
+            <el-button :loading="refreshing" @click="refreshData">{{ t('common.refresh') }}</el-button>
             <el-button type="danger" plain @click="removeSelectedBuckets">{{ t('kv.batchDelete') }}</el-button>
             <el-button type="primary" @click="bucketDialog = true">{{ t('kv.create') }}</el-button>
           </div>

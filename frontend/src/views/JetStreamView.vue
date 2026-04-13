@@ -10,6 +10,7 @@ const { t } = useI18n()
 const streams = ref([])
 const total = ref(0)
 const loading = ref(false)
+const refreshing = ref(false)
 const selected = ref(null)
 const selectedRows = ref([])
 const detail = ref(null)
@@ -52,6 +53,15 @@ async function loadStreams() {
     }
   } finally {
     loading.value = false
+  }
+}
+
+async function refreshData() {
+  refreshing.value = true
+  try {
+    await loadStreams()
+  } finally {
+    refreshing.value = false
   }
 }
 
@@ -132,13 +142,13 @@ async function removeSelectedStreams() {
 }
 
 onMounted(async () => {
-  await loadStreams()
+  await refreshData()
   unsubscribe = onConnectionChanged(async () => {
     selected.value = null
     detail.value = null
     selectedRows.value = []
     page.value = 1
-    await loadStreams()
+    await refreshData()
   })
 })
 
@@ -180,6 +190,7 @@ watch(
         <div class="card-header">
           <span>{{ t('jetstream.streams') }}</span>
           <div class="data-toolbar">
+            <el-button :loading="refreshing" @click="refreshData">{{ t('common.refresh') }}</el-button>
             <el-button type="danger" plain @click="removeSelectedStreams">{{ t('jetstream.batchDelete') }}</el-button>
             <el-button type="primary" @click="dialogVisible = true">{{ t('jetstream.create') }}</el-button>
           </div>

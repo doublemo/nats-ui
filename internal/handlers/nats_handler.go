@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
 	"time"
@@ -35,6 +36,7 @@ func (h *NATSHandler) Register(router *gin.Engine) {
 		api.POST("/connections/:id/test", h.TestConnection)
 
 		api.GET("/cluster/overview", h.GetClusterOverview)
+		api.GET("/cluster/node-detail", h.GetClusterNodeDetail)
 
 		api.GET("/streams", h.ListStreams)
 		api.POST("/streams", h.CreateStream)
@@ -63,8 +65,29 @@ func (h *NATSHandler) GetClusterOverview(c *gin.Context) {
 	writeSuccess(c, data)
 }
 
+func (h *NATSHandler) GetClusterNodeDetail(c *gin.Context) {
+	endpoint := c.Query("endpoint")
+	if endpoint == "" {
+		writeError(c, http.StatusBadRequest, fmt.Errorf("endpoint query is required"))
+		return
+	}
+
+	data, err := h.service.GetClusterNodeDetail(c.Request.Context(), connectionIDFromContext(c), endpoint)
+	if err != nil {
+		writeError(c, http.StatusBadGateway, err)
+		return
+	}
+	writeSuccess(c, data)
+}
+
 func (h *NATSHandler) ListStreams(c *gin.Context) {
-	data, err := h.service.ListStreams(c.Request.Context(), connectionIDFromContext(c), queryInt(c, "page", 1), queryInt(c, "pageSize", 10))
+	data, err := h.service.ListStreams(
+		c.Request.Context(),
+		connectionIDFromContext(c),
+		c.Query("keyword"),
+		queryInt(c, "page", 1),
+		queryInt(c, "pageSize", 10),
+	)
 	if err != nil {
 		writeError(c, http.StatusBadGateway, err)
 		return
@@ -114,7 +137,13 @@ func (h *NATSHandler) BatchDeleteStreams(c *gin.Context) {
 }
 
 func (h *NATSHandler) ListBuckets(c *gin.Context) {
-	data, err := h.service.ListBuckets(c.Request.Context(), connectionIDFromContext(c), queryInt(c, "page", 1), queryInt(c, "pageSize", 10))
+	data, err := h.service.ListBuckets(
+		c.Request.Context(),
+		connectionIDFromContext(c),
+		c.Query("keyword"),
+		queryInt(c, "page", 1),
+		queryInt(c, "pageSize", 10),
+	)
 	if err != nil {
 		writeError(c, http.StatusBadGateway, err)
 		return
@@ -154,7 +183,14 @@ func (h *NATSHandler) BatchDeleteBuckets(c *gin.Context) {
 }
 
 func (h *NATSHandler) ListKVEntries(c *gin.Context) {
-	data, err := h.service.ListKVEntries(c.Request.Context(), connectionIDFromContext(c), c.Param("name"), queryInt(c, "page", 1), queryInt(c, "pageSize", 10))
+	data, err := h.service.ListKVEntries(
+		c.Request.Context(),
+		connectionIDFromContext(c),
+		c.Param("name"),
+		c.Query("keyword"),
+		queryInt(c, "page", 1),
+		queryInt(c, "pageSize", 10),
+	)
 	if err != nil {
 		writeError(c, http.StatusBadGateway, err)
 		return

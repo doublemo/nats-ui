@@ -81,10 +81,11 @@ func (s *NATSService) GetClusterOverview(ctx context.Context, connectionID strin
 		if item.err != nil {
 			overview.Summary.UnhealthyNodes++
 			overview.Nodes = append(overview.Nodes, models.ClusterNode{
-				Name:      monitorEndpointLabel(monitorEndpoints[idx]),
-				Host:      monitorEndpointHost(monitorEndpoints[idx]),
-				Status:    "unhealthy",
-				LastError: item.err.Error(),
+				MonitorEndpoint: monitorEndpoints[idx],
+				Name:            monitorEndpointLabel(monitorEndpoints[idx]),
+				Host:            monitorEndpointHost(monitorEndpoints[idx]),
+				Status:          "unhealthy",
+				LastError:       item.err.Error(),
 			})
 			overview.Warnings = append(overview.Warnings, fmt.Sprintf("%s: %v", monitorEndpoints[idx], item.err))
 			continue
@@ -94,19 +95,21 @@ func (s *NATSService) GetClusterOverview(ctx context.Context, connectionID strin
 		overview.ServerID = item.varz.ID
 		overview.Version = item.varz.Version
 		overview.Nodes = append(overview.Nodes, models.ClusterNode{
-			Name:          item.varz.ServerName,
-			Host:          item.varz.Host,
-			Version:       item.varz.Version,
-			Cluster:       item.varz.Cluster.Name,
-			CPU:           item.varz.CPU,
-			Mem:           item.varz.Mem,
-			Connections:   item.varz.Connections,
-			InMsgs:        item.varz.InMsgs,
-			OutMsgs:       item.varz.OutMsgs,
-			InBytes:       item.varz.InBytes,
-			OutBytes:      item.varz.OutBytes,
-			SlowConsumers: item.varz.SlowConsumers,
-			Status:        "healthy",
+			ServerID:        item.varz.ID,
+			MonitorEndpoint: monitorEndpoints[idx],
+			Name:            item.varz.ServerName,
+			Host:            item.varz.Host,
+			Version:         item.varz.Version,
+			Cluster:         item.varz.Cluster.Name,
+			CPU:             item.varz.CPU,
+			Mem:             item.varz.Mem,
+			Connections:     item.varz.Connections,
+			InMsgs:          item.varz.InMsgs,
+			OutMsgs:         item.varz.OutMsgs,
+			InBytes:         item.varz.InBytes,
+			OutBytes:        item.varz.OutBytes,
+			SlowConsumers:   item.varz.SlowConsumers,
+			Status:          "healthy",
 		})
 		overview.Summary.HealthyNodes++
 		overview.Summary.TotalMem += item.varz.Mem
@@ -143,7 +146,61 @@ func (s *NATSService) GetClusterOverview(ctx context.Context, connectionID strin
 	return overview, nil
 }
 
-func (s *NATSService) ListStreams(ctx context.Context, connectionID string, page, pageSize int) (*models.StreamListResponse, error) {
+func (s *NATSService) GetClusterNodeDetail(ctx context.Context, connectionID, endpoint string) (*models.ClusterNodeDetail, error) {
+	config, client, err := s.manager.Resolve(connectionID)
+	if err != nil {
+		return nil, err
+	}
+
+	resolvedEndpoint, ok := resolveMonitorEndpoint(effectiveMonitorEndpoints(config, client.connectedURL), endpoint)
+	if !ok {
+		return nil, fmt.Errorf("monitor endpoint %s is not configured for the active connection", endpoint)
+	}
+
+	varz, rawVarz, err := s.fetchVarzRaw(ctx, resolvedEndpoint)
+	if err != nil {
+		return &models.ClusterNodeDetail{
+			MonitorEndpoint: resolvedEndpoint,
+			Name:            monitorEndpointLabel(resolvedEndpoint),
+			Host:            monitorEndpointHost(resolvedEndpoint),
+			Status:          "unhealthy",
+			LastError:       err.Error(),
+		}, nil
+	}
+
+	detail := &models.ClusterNodeDetail{
+		ServerID:        varz.ID,
+		MonitorEndpoint: resolvedEndpoint,
+		Name:            varz.ServerName,
+		Host:            varz.Host,
+		Version:         varz.Version,
+		Cluster:         varz.Cluster.Name,
+		CPU:             varz.CPU,
+		Mem:             varz.Mem,
+		Connections:     varz.Connections,
+		Subscriptions:   varz.Subscriptions,
+		InMsgs:          varz.InMsgs,
+		OutMsgs:         varz.OutMsgs,
+		InBytes:         varz.InBytes,
+		OutBytes:        varz.OutBytes,
+		SlowConsumers:   varz.SlowConsumers,
+		Status:          "healthy",
+		RawVarz:         rawVarz,
+	}
+
+	connz, err := s.fetchConnz(ctx, resolvedEndpoint)
+	if err != nil {
+		detail.Status = "unhealthy"
+		detail.LastError = err.Error()
+		return detail, nil
+	}
+
+	detail.ActiveConnections = connz.NumConnections
+	detail.TotalConnections = connz.Total
+	return detail, nil
+}
+
+func (s *NATSService) ListStreams(ctx context.Context, connectionID, keyword string, page, pageSize int) (*models.StreamListResponse, error) {
 	_, client, err := s.manager.Resolve(connectionID)
 	if err != nil {
 		return nil, err
@@ -151,6 +208,7 @@ func (s *NATSService) ListStreams(ctx context.Context, connectionID string, page
 
 	names := client.js.StreamNames()
 	items := make([]models.StreamItem, 0)
+	keyword = strings.ToLower(strings.TrimSpace(keyword))
 
 	for name := range names {
 		info, err := client.js.StreamInfo(name)
@@ -176,6 +234,13 @@ func (s *NATSService) ListStreams(ctx context.Context, connectionID string, page
 				Subject: subject,
 				Count:   count,
 			})
+		}
+
+		if keyword != "" {
+			searchText := strings.ToLower(strings.Join(append([]string{item.Name}, item.Subjects...), " "))
+			if !strings.Contains(searchText, keyword) {
+				continue
+			}
 		}
 
 		items = append(items, item)
@@ -285,8 +350,8 @@ func (s *NATSService) GetStreamDetail(ctx context.Context, connectionID, name st
 	return detail, nil
 }
 
-func (s *NATSService) ListBuckets(ctx context.Context, connectionID string, page, pageSize int) (*models.BucketListResponse, error) {
-	streams, err := s.ListStreams(ctx, connectionID, 1, 100000)
+func (s *NATSService) ListBuckets(ctx context.Context, connectionID, keyword string, page, pageSize int) (*models.BucketListResponse, error) {
+	streams, err := s.ListStreams(ctx, connectionID, "", 1, 100000)
 	if err != nil {
 		return nil, err
 	}
@@ -297,12 +362,16 @@ func (s *NATSService) ListBuckets(ctx context.Context, connectionID string, page
 	}
 
 	items := make([]models.BucketItem, 0)
+	keyword = strings.ToLower(strings.TrimSpace(keyword))
 	for _, stream := range streams.Items {
 		if !strings.HasPrefix(stream.Name, "KV_") {
 			continue
 		}
 
 		bucketName := strings.TrimPrefix(stream.Name, "KV_")
+		if keyword != "" && !strings.Contains(strings.ToLower(bucketName), keyword) {
+			continue
+		}
 		kv, err := client.js.KeyValue(bucketName)
 		if err != nil {
 			return nil, err
@@ -380,7 +449,7 @@ func (s *NATSService) BatchDeleteBuckets(ctx context.Context, connectionID strin
 	return result
 }
 
-func (s *NATSService) ListKVEntries(ctx context.Context, connectionID, bucket string, page, pageSize int) (*models.KVEntryListResponse, error) {
+func (s *NATSService) ListKVEntries(ctx context.Context, connectionID, bucket, keyword string, page, pageSize int) (*models.KVEntryListResponse, error) {
 	_, client, err := s.manager.Resolve(connectionID)
 	if err != nil {
 		return nil, err
@@ -396,7 +465,11 @@ func (s *NATSService) ListKVEntries(ctx context.Context, connectionID, bucket st
 	}
 
 	entries := make([]models.KVEntry, 0, len(keys))
+	keyword = strings.ToLower(strings.TrimSpace(keyword))
 	for _, key := range keys {
+		if keyword != "" && !strings.Contains(strings.ToLower(key), keyword) {
+			continue
+		}
 		entry, err := kv.Get(key)
 		if err != nil {
 			return nil, err
@@ -571,6 +644,24 @@ func (s *NATSService) fetchVarz(ctx context.Context, endpoint string) (varzRespo
 	return payload, nil
 }
 
+func (s *NATSService) fetchVarzRaw(ctx context.Context, endpoint string) (varzResponse, map[string]interface{}, error) {
+	var raw map[string]interface{}
+	if err := s.fetchJSON(ctx, endpoint+"/varz", &raw); err != nil {
+		return varzResponse{}, nil, err
+	}
+
+	buf, err := json.Marshal(raw)
+	if err != nil {
+		return varzResponse{}, nil, err
+	}
+
+	var payload varzResponse
+	if err := json.Unmarshal(buf, &payload); err != nil {
+		return varzResponse{}, nil, err
+	}
+	return payload, raw, nil
+}
+
 func (s *NATSService) fetchConnz(ctx context.Context, endpoint string) (connzResponse, error) {
 	u, err := url.Parse(endpoint + "/connz")
 	if err != nil {
@@ -630,4 +721,17 @@ func monitorEndpointLabel(endpoint string) string {
 		return host
 	}
 	return endpoint
+}
+
+func resolveMonitorEndpoint(candidates []string, target string) (string, bool) {
+	target = strings.TrimSpace(target)
+	if target == "" {
+		return "", false
+	}
+	for _, candidate := range candidates {
+		if strings.EqualFold(strings.TrimSpace(candidate), target) {
+			return candidate, true
+		}
+	}
+	return "", false
 }

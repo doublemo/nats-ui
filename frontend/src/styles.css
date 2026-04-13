@@ -303,6 +303,7 @@ body {
   align-self: center;
 }
 
+.locale-panel,
 .connection-panel {
   display: grid;
   gap: 3px;
@@ -327,6 +328,10 @@ body {
 
 .connection-switch {
   width: 280px;
+}
+
+.language-switch {
+  width: 140px;
 }
 
 .page-body {
@@ -407,6 +412,11 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: center;
+}
+
+.table-tip {
+  color: #64748b;
+  font-size: 12px;
 }
 
 .mb-16 {
@@ -511,6 +521,14 @@ body {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
+}
+
+.el-table .el-table__row {
+  transition: background-color 0.2s ease;
+}
+
+.el-table .el-table__row:hover {
+  cursor: pointer;
 }
 
 .layout-shell.is-web {
@@ -629,6 +647,11 @@ body {
     min-width: 0;
   }
 
+  .locale-panel {
+    min-width: 0;
+  }
+
+  .language-switch,
   .connection-switch {
     width: 100%;
   }

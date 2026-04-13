@@ -1,5 +1,7 @@
 # NATS UI
 
+[English README](./README.en.md)
+
 基于 `Golang + Gin + nats.go + Vue 3 + Vite + Element Plus + ECharts` 的 NATS Server 可视化管理工具基础架构。
 
 现已增加 Electron 桌面端封装，可在 Windows、macOS、Linux 上打包为本地安装应用。桌面端会在应用启动时自动拉起内置 Go 后端，再加载前端页面。
@@ -80,6 +82,7 @@ npm run desktop:start
 桌面端常用构建命令：
 
 ```bash
+npm run assets:icons
 npm run desktop:build:backend
 npm run desktop:build:backend:all
 npm run desktop:dist
@@ -90,6 +93,7 @@ npm run desktop:dist:linux
 
 说明：
 
+- `assets:icons` 会生成应用图标、favicon、Windows 安装器侧边图和 DMG 背景图。
 - `desktop:build:backend` 会为当前平台构建桌面端内置 Go 后端。
 - `desktop:build:backend:all` 会额外生成 Windows、macOS、Linux 常见架构的后端二进制。
 - `desktop:dist` 会为当前操作系统打包 Electron 应用并输出到 `release/`。

@@ -1,6 +1,7 @@
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { useI18n } from 'vue-i18n'
 import {
   activateConnection,
   batchDeleteConnections,
@@ -18,7 +19,16 @@ import {
 } from '../api/nats'
 
 const CONNECTION_MANAGER_STATE_KEY = 'nats-ui-connection-manager-state'
+const UI_UNASSIGNED_GROUP = '__UNASSIGNED__'
+const BACKEND_UNASSIGNED_GROUP = '未分组'
+const STATUS_CURRENT = '当前连接'
+const STATUS_UNCHECKED = '未检测'
+const STATUS_CONNECTED = 'CONNECTED'
+const STATUS_DISCONNECTED = 'DISCONNECTED'
+const STATUS_RECONNECTING = 'RECONNECTING'
+const STATUS_ERROR = 'ERROR'
 
+const { t, locale } = useI18n()
 const loading = ref(false)
 const testing = ref(false)
 const batchTesting = ref(false)
@@ -49,31 +59,38 @@ const form = reactive({
   token: '',
 })
 
-restoreViewState()
-
 const groupOptions = computed(() => {
-  return [...new Set(connections.value.map((item) => item.group || '未分组'))]
+  const groups = [...new Set(connections.value.map((item) => item.group || UI_UNASSIGNED_GROUP))]
+  return groups.map((value) => ({
+    value,
+    label: formatGroupName(value),
+  }))
 })
 
-const tagOptions = computed(() => {
-  return [...new Set(connections.value.flatMap((item) => item.tags || []))]
-})
+const tagOptions = computed(() => [...new Set(connections.value.flatMap((item) => item.tags || []))])
 
-const statusOptions = ['当前连接', 'CONNECTED', 'DISCONNECTED', 'RECONNECTING', 'ERROR', '未检测']
+const statusOptions = computed(() => [
+  { value: STATUS_CURRENT, label: t('connections.status.current') },
+  { value: STATUS_CONNECTED, label: t('connections.status.connected') },
+  { value: STATUS_DISCONNECTED, label: t('connections.status.disconnected') },
+  { value: STATUS_RECONNECTING, label: t('connections.status.reconnecting') },
+  { value: STATUS_ERROR, label: t('connections.status.error') },
+  { value: STATUS_UNCHECKED, label: t('connections.status.unchecked') },
+])
 
 const groupedConnections = computed(() => {
   const keyword = filters.keyword.trim().toLowerCase()
   const groups = new Map()
 
   for (const item of connections.value) {
-    const targetGroup = item.group || '未分组'
+    const targetGroup = item.group || UI_UNASSIGNED_GROUP
     if (filters.group && targetGroup !== filters.group) {
       continue
     }
     if (filters.tag && !(item.tags || []).includes(filters.tag)) {
       continue
     }
-    const displayStatus = item.id === activeId.value ? '当前连接' : (item.status || '未检测')
+    const displayStatus = item.id === activeId.value ? STATUS_CURRENT : (item.status || STATUS_UNCHECKED)
     if (filters.status && displayStatus !== filters.status) {
       continue
     }
@@ -101,14 +118,51 @@ const groupedConnections = computed(() => {
     groups.get(targetGroup).push(item)
   }
 
+  const sortLocale = locale.value === 'zh-CN' ? 'zh-CN' : 'en-US'
+
   return Array.from(groups.entries())
-    .sort(([a], [b]) => a.localeCompare(b, 'zh-CN'))
+    .sort(([a], [b]) => formatGroupName(a).localeCompare(formatGroupName(b), sortLocale))
     .map(([name, items]) => ({
       name,
       count: items.length,
-      items: items.sort((a, b) => a.name.localeCompare(b.name, 'zh-CN')),
+      items: items.sort((a, b) => a.name.localeCompare(b.name, sortLocale)),
     }))
 })
+
+restoreViewState()
+
+function normalizeGroupValue(value) {
+  if (value === BACKEND_UNASSIGNED_GROUP) {
+    return UI_UNASSIGNED_GROUP
+  }
+  return value || ''
+}
+
+function getRequestGroupValue(value) {
+  if (value === UI_UNASSIGNED_GROUP) {
+    return BACKEND_UNASSIGNED_GROUP
+  }
+  return value || undefined
+}
+
+function formatGroupName(value) {
+  return value === UI_UNASSIGNED_GROUP ? t('connections.unassignedGroup') : value
+}
+
+function formatConnectionStatus(status, isActive) {
+  if (isActive) return t('connections.status.current')
+
+  const statusMap = {
+    [STATUS_CONNECTED]: 'connections.status.connected',
+    [STATUS_DISCONNECTED]: 'connections.status.disconnected',
+    [STATUS_RECONNECTING]: 'connections.status.reconnecting',
+    [STATUS_ERROR]: 'connections.status.error',
+    [STATUS_UNCHECKED]: 'connections.status.unchecked',
+  }
+
+  const key = statusMap[status || STATUS_UNCHECKED]
+  return key ? t(key) : status
+}
 
 async function loadConnections() {
   loading.value = true
@@ -117,7 +171,7 @@ async function loadConnections() {
       page: page.value,
       pageSize: pageSize.value,
       keyword: filters.keyword || undefined,
-      group: filters.group || undefined,
+      group: getRequestGroupValue(filters.group),
       tag: filters.tag || undefined,
       status: filters.status || undefined,
     })
@@ -125,7 +179,7 @@ async function loadConnections() {
     activeId.value = data.activeId
     total.value = data.total
     if (!activeGroups.value.length) {
-      activeGroups.value = [...new Set(data.items.map((item) => item.group || '未分组'))]
+      activeGroups.value = [...new Set(data.items.map((item) => item.group || UI_UNASSIGNED_GROUP))]
     }
     if (data.activeId) {
       setActiveConnectionId(data.activeId)
@@ -161,12 +215,12 @@ function restoreViewState() {
     if (!raw) return
     const saved = JSON.parse(raw)
     filters.keyword = saved.keyword || ''
-    filters.group = saved.group || ''
+    filters.group = normalizeGroupValue(saved.group)
     filters.tag = saved.tag || ''
     filters.status = saved.status || ''
     page.value = saved.page || 1
     pageSize.value = saved.pageSize || 12
-    activeGroups.value = Array.isArray(saved.activeGroups) ? saved.activeGroups : []
+    activeGroups.value = Array.isArray(saved.activeGroups) ? saved.activeGroups.map(normalizeGroupValue) : []
   } catch {
     window.localStorage.removeItem(CONNECTION_MANAGER_STATE_KEY)
   }
@@ -236,17 +290,17 @@ async function fillMonitorEndpoints() {
   const natsUrls = form.natsUrls.split(',').map((item) => item.trim()).filter(Boolean)
   const data = await discoverMonitorEndpoints(natsUrls)
   form.monitorEndpoints = data.monitorEndpoints.join(', ')
-  ElMessage.success('已根据 NATS 地址推导监控地址')
+  ElMessage.success(t('connections.messages.discoverSuccess'))
 }
 
 async function submit() {
   const payload = buildPayload()
   if (editingId.value) {
     await updateConnection(editingId.value, payload)
-    ElMessage.success('连接已更新')
+    ElMessage.success(t('connections.messages.updatedSuccess'))
   } else {
     await createConnection(payload)
-    ElMessage.success('连接已创建')
+    ElMessage.success(t('connections.messages.createdSuccess'))
   }
   dialogVisible.value = false
   await loadConnections()
@@ -260,7 +314,7 @@ async function runProbe() {
     } else {
       await probeConnection(buildPayload())
     }
-    ElMessage.success('连接测试通过')
+    ElMessage.success(t('connections.messages.testSuccess'))
     await loadConnections()
   } finally {
     testing.value = false
@@ -269,7 +323,7 @@ async function runProbe() {
 
 async function runSavedTest(id) {
   await testConnection(id)
-  ElMessage.success('连接测试通过')
+  ElMessage.success(t('connections.messages.testSuccess'))
   await loadConnections()
 }
 
@@ -294,7 +348,7 @@ function exportConnections() {
   link.download = `nats-connections-${Date.now()}.json`
   link.click()
   window.URL.revokeObjectURL(url)
-  ElMessage.success('连接配置已导出')
+  ElMessage.success(t('connections.messages.exportSuccess'))
 }
 
 async function handleImport(event) {
@@ -312,11 +366,14 @@ async function handleImport(event) {
     if (preview.conflicts > 0) {
       try {
         await ElMessageBox.confirm(
-          `检测到 ${preview.conflicts} 个重名连接，${preview.newCount} 个新连接。选择“覆盖导入”将更新重名连接，选择“跳过冲突”只导入新连接。`,
-          '导入预览',
+          t('connections.messages.importPreviewMessage', {
+            conflicts: preview.conflicts,
+            newCount: preview.newCount,
+          }),
+          t('connections.messages.importPreviewTitle'),
           {
-            confirmButtonText: '覆盖导入',
-            cancelButtonText: '跳过冲突',
+            confirmButtonText: t('connections.messages.overwriteImport'),
+            cancelButtonText: t('connections.messages.skipConflict'),
             distinguishCancelAndClose: true,
             type: 'warning',
           },
@@ -331,7 +388,14 @@ async function handleImport(event) {
     }
     const result = await importConnections({ items, strategy })
     await loadConnections()
-    ElMessage.success(`导入完成，新建 ${result.created}，覆盖 ${result.updated}，跳过 ${result.skipped}，失败 ${result.failed}`)
+    ElMessage.success(
+      t('connections.messages.importSummary', {
+        created: result.created,
+        updated: result.updated,
+        skipped: result.skipped,
+        failed: result.failed,
+      }),
+    )
   } finally {
     importing.value = false
     event.target.value = ''
@@ -355,7 +419,7 @@ async function runBatchTest() {
       }
     }
     await loadConnections()
-    ElMessage.success(`批量测试完成，成功 ${passed}，失败 ${failed}`)
+    ElMessage.success(t('connections.messages.batchTestSummary', { passed, failed }))
   } finally {
     batchTesting.value = false
   }
@@ -373,29 +437,33 @@ async function switchActive(id) {
   await activateConnection(id)
   setActiveConnectionId(id)
   activeId.value = id
-  ElMessage.success('已切换当前连接')
+  ElMessage.success(t('connections.messages.switchSuccess'))
   await loadConnections()
 }
 
 async function removeConnection(id, name) {
-  await ElMessageBox.confirm(`确认删除连接 ${name} ?`, '提示', { type: 'warning' })
+  await ElMessageBox.confirm(t('connections.messages.deleteConfirm', { name }), t('common.prompt'), { type: 'warning' })
   const data = await deleteConnection(id)
   setActiveConnectionId(data.activeId || '')
-  ElMessage.success('连接已删除')
+  ElMessage.success(t('connections.messages.deletedSuccess'))
   await loadConnections()
 }
 
 async function removeSelectedConnections() {
   if (!selectedIds.value.length) {
-    ElMessage.warning('请先选择要删除的连接')
+    ElMessage.warning(t('connections.messages.selectDeleteWarning'))
     return
   }
-  await ElMessageBox.confirm(`确认批量删除 ${selectedIds.value.length} 个连接？`, '提示', { type: 'warning' })
+  await ElMessageBox.confirm(
+    t('connections.messages.batchDeleteConfirm', { count: selectedIds.value.length }),
+    t('common.prompt'),
+    { type: 'warning' },
+  )
   const result = await batchDeleteConnections(selectedIds.value)
   selectedIds.value = []
   setActiveConnectionId(result.activeId || '')
   await loadConnections()
-  ElMessage.success(`批量删除完成，成功 ${result.deleted}，失败 ${result.failed}`)
+  ElMessage.success(t('connections.messages.batchDeleteSummary', { deleted: result.deleted, failed: result.failed }))
 }
 
 onMounted(loadConnections)
@@ -432,34 +500,34 @@ watch(page, async () => {
     <el-card shadow="never">
       <template #header>
         <div class="card-header">
-          <span>NATS 服务器连接管理</span>
+          <span>{{ t('connections.title') }}</span>
           <div class="connection-toolbar">
-            <el-button :loading="batchTesting" @click="runBatchTest">批量测试</el-button>
-            <el-button @click="exportConnections">导出配置</el-button>
+            <el-button :loading="batchTesting" @click="runBatchTest">{{ t('connections.batchTest') }}</el-button>
+            <el-button @click="exportConnections">{{ t('connections.exportConfig') }}</el-button>
             <label class="upload-button">
               <input type="file" accept="application/json" :disabled="importing" @change="handleImport" />
-              <span>{{ importing ? '导入中...' : '导入配置' }}</span>
+              <span>{{ importing ? t('connections.importing') : t('connections.importConfig') }}</span>
             </label>
-            <el-button type="danger" plain @click="removeSelectedConnections">批量删除</el-button>
-            <el-button @click="expandAllGroups">展开全部</el-button>
-            <el-button @click="collapseAllGroups">收起全部</el-button>
-            <el-button type="primary" @click="openCreate">新增连接</el-button>
+            <el-button type="danger" plain @click="removeSelectedConnections">{{ t('connections.batchDelete') }}</el-button>
+            <el-button @click="expandAllGroups">{{ t('connections.expandAll') }}</el-button>
+            <el-button @click="collapseAllGroups">{{ t('connections.collapseAll') }}</el-button>
+            <el-button type="primary" @click="openCreate">{{ t('connections.createConnection') }}</el-button>
           </div>
         </div>
       </template>
 
       <div class="connection-filters">
-        <el-input v-model="filters.keyword" placeholder="搜索名称、地址、标签" clearable />
-        <el-select v-model="filters.group" placeholder="全部分组" clearable>
-          <el-option v-for="item in groupOptions" :key="item" :label="item" :value="item" />
+        <el-input v-model="filters.keyword" :placeholder="t('connections.searchPlaceholder')" clearable />
+        <el-select v-model="filters.group" :placeholder="t('connections.allGroups')" clearable>
+          <el-option v-for="item in groupOptions" :key="item.value" :label="item.label" :value="item.value" />
         </el-select>
-        <el-select v-model="filters.tag" placeholder="全部标签" clearable>
+        <el-select v-model="filters.tag" :placeholder="t('connections.allTags')" clearable>
           <el-option v-for="item in tagOptions" :key="item" :label="item" :value="item" />
         </el-select>
-        <el-select v-model="filters.status" placeholder="全部状态" clearable>
-          <el-option v-for="item in statusOptions" :key="item" :label="item" :value="item" />
+        <el-select v-model="filters.status" :placeholder="t('connections.allStatuses')" clearable>
+          <el-option v-for="item in statusOptions" :key="item.value" :label="item.label" :value="item.value" />
         </el-select>
-        <el-button @click="resetFilters">重置筛选</el-button>
+        <el-button @click="resetFilters">{{ t('connections.resetFilters') }}</el-button>
       </div>
     </el-card>
 
@@ -467,7 +535,7 @@ watch(page, async () => {
       <el-collapse-item v-for="group in groupedConnections" :key="group.name" :name="group.name">
         <template #title>
           <div class="connection-group-title">
-            <strong>{{ group.name }}</strong>
+            <strong>{{ formatGroupName(group.name) }}</strong>
             <el-tag size="small" type="info">{{ group.count }}</el-tag>
           </div>
         </template>
@@ -483,17 +551,17 @@ watch(page, async () => {
                 </div>
               </div>
               <el-tag :type="row.id === activeId ? 'success' : 'info'">
-                {{ row.id === activeId ? '当前连接' : row.status || '未检测' }}
+                {{ formatConnectionStatus(row.status, row.id === activeId) }}
               </el-tag>
             </div>
 
             <div class="connection-meta">
-              <span>监控地址: {{ row.monitorEndpoints.join(', ') || '-' }}</span>
-              <span>当前节点: {{ row.connectedUrl || '-' }}</span>
-              <span>鉴权: {{ row.hasPassword || row.hasToken ? '已配置' : '无' }}</span>
+              <span>{{ t('connections.monitorEndpoints') }}: {{ row.monitorEndpoints.join(', ') || '-' }}</span>
+              <span>{{ t('connections.currentNode') }}: {{ row.connectedUrl || '-' }}</span>
+              <span>{{ t('connections.auth') }}: {{ row.hasPassword || row.hasToken ? t('connections.configured') : t('connections.none') }}</span>
             </div>
 
-            <el-space wrap class="connection-tags" v-if="row.tags?.length">
+            <el-space v-if="row.tags?.length" wrap class="connection-tags">
               <el-tag v-for="tag in row.tags" :key="tag" size="small">{{ tag }}</el-tag>
             </el-space>
 
@@ -507,17 +575,17 @@ watch(page, async () => {
             />
 
             <div class="connection-card-actions">
-              <el-button type="primary" plain @click="switchActive(row.id)">切换</el-button>
-              <el-button plain @click="runSavedTest(row.id)">测试</el-button>
-              <el-button plain @click="openEdit(row)">编辑</el-button>
-              <el-button type="danger" plain @click="removeConnection(row.id, row.name)">删除</el-button>
+              <el-button type="primary" plain @click="switchActive(row.id)">{{ t('common.switch') }}</el-button>
+              <el-button plain @click="runSavedTest(row.id)">{{ t('common.test') }}</el-button>
+              <el-button plain @click="openEdit(row)">{{ t('common.edit') }}</el-button>
+              <el-button type="danger" plain @click="removeConnection(row.id, row.name)">{{ t('common.delete') }}</el-button>
             </div>
           </el-card>
         </div>
       </el-collapse-item>
     </el-collapse>
 
-    <div class="table-pagination" v-if="total > 0">
+    <div v-if="total > 0" class="table-pagination">
       <el-pagination
         v-model:current-page="page"
         v-model:page-size="pageSize"
@@ -527,44 +595,49 @@ watch(page, async () => {
       />
     </div>
 
-    <el-empty v-if="!groupedConnections.length" description="没有匹配的连接" />
+    <el-empty v-if="!groupedConnections.length" :description="t('connections.empty')" />
   </div>
 
-  <el-dialog v-model="dialogVisible" :title="editingId ? '编辑连接' : '新增连接'" width="640px">
+  <el-dialog v-model="dialogVisible" :title="editingId ? t('connections.dialog.editTitle') : t('connections.dialog.createTitle')" width="640px">
     <el-form label-width="110px">
-      <el-form-item label="连接名称">
+      <el-form-item :label="t('connections.fields.name')">
         <el-input v-model="form.name" />
       </el-form-item>
-      <el-form-item label="分组">
-        <el-input v-model="form.group" placeholder="例如: 生产 / 测试 / 区域A" />
+      <el-form-item :label="t('connections.fields.group')">
+        <el-input v-model="form.group" :placeholder="t('connections.placeholders.group')" />
       </el-form-item>
-      <el-form-item label="标签">
-        <el-input v-model="form.tags" placeholder="例如: jetstream, core, cn-east" />
+      <el-form-item :label="t('connections.fields.tags')">
+        <el-input v-model="form.tags" :placeholder="t('connections.placeholders.tags')" />
       </el-form-item>
-      <el-form-item label="NATS URLs">
-        <el-input v-model="form.natsUrls" placeholder="nats://127.0.0.1:4222, nats://127.0.0.1:4223" />
+      <el-form-item :label="t('connections.fields.natsUrls')">
+        <el-input v-model="form.natsUrls" :placeholder="t('connections.placeholders.natsUrls')" />
       </el-form-item>
-      <el-form-item label="Monitor URLs">
-        <el-input v-model="form.monitorEndpoints" placeholder="http://127.0.0.1:8222, http://127.0.0.1:8223">
+      <el-form-item :label="t('connections.fields.monitorUrls')">
+        <el-input v-model="form.monitorEndpoints" :placeholder="t('connections.placeholders.monitorUrls')">
           <template #append>
-            <el-button @click="fillMonitorEndpoints">自动发现</el-button>
+            <el-button @click="fillMonitorEndpoints">{{ t('connections.actions.autoDiscover') }}</el-button>
           </template>
         </el-input>
       </el-form-item>
-      <el-form-item label="用户名">
+      <el-form-item :label="t('connections.fields.username')">
         <el-input v-model="form.username" />
       </el-form-item>
-      <el-form-item label="密码">
-        <el-input v-model="form.password" type="password" show-password :placeholder="editingId ? '留空表示保持不变' : ''" />
+      <el-form-item :label="t('connections.fields.password')">
+        <el-input
+          v-model="form.password"
+          type="password"
+          show-password
+          :placeholder="editingId ? t('connections.placeholders.keepUnchanged') : ''"
+        />
       </el-form-item>
-      <el-form-item label="Token">
-        <el-input v-model="form.token" :placeholder="editingId ? '留空表示保持不变' : ''" />
+      <el-form-item :label="t('connections.fields.token')">
+        <el-input v-model="form.token" :placeholder="editingId ? t('connections.placeholders.keepUnchanged') : ''" />
       </el-form-item>
     </el-form>
     <template #footer>
-      <el-button @click="dialogVisible = false">取消</el-button>
-      <el-button :loading="testing" @click="runProbe">测试连接</el-button>
-      <el-button type="primary" @click="submit">保存</el-button>
+      <el-button @click="dialogVisible = false">{{ t('common.cancel') }}</el-button>
+      <el-button :loading="testing" @click="runProbe">{{ t('common.test') }}</el-button>
+      <el-button type="primary" @click="submit">{{ t('common.save') }}</el-button>
     </template>
   </el-dialog>
 </template>

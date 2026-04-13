@@ -3,17 +3,20 @@
   "private": true,
   "version": "0.1.0",
   "description": "Desktop wrapper for NATS UI",
+  "author": "doublemo",
+  "license": "MIT",
   "main": "desktop/main.cjs",
   "scripts": {
+    "assets:icons": "powershell -ExecutionPolicy Bypass -File scripts/generate-app-icons.ps1",
     "desktop:build:frontend": "npm --prefix frontend run build",
     "desktop:build:backend": "node desktop/scripts/build-backend.mjs",
     "desktop:build:backend:all": "node desktop/scripts/build-backend.mjs --all",
-    "desktop:start": "npm run desktop:build:frontend && npm run desktop:build:backend && electron .",
-    "desktop:pack": "npm run desktop:build:frontend && npm run desktop:build:backend && electron-builder --dir",
-    "desktop:dist": "npm run desktop:build:frontend && npm run desktop:build:backend && electron-builder",
-    "desktop:dist:win": "npm run desktop:build:frontend && node desktop/scripts/build-backend.mjs --target win32:x64 && electron-builder --win nsis portable",
-    "desktop:dist:mac": "npm run desktop:build:frontend && node desktop/scripts/build-backend.mjs --target darwin:x64 --target darwin:arm64 && electron-builder --mac dmg zip",
-    "desktop:dist:linux": "npm run desktop:build:frontend && node desktop/scripts/build-backend.mjs --target linux:x64 --target linux:arm64 && electron-builder --linux AppImage deb tar.gz"
+    "desktop:start": "npm run assets:icons && npm run desktop:build:frontend && npm run desktop:build:backend && electron .",
+    "desktop:pack": "npm run assets:icons && npm run desktop:build:frontend && npm run desktop:build:backend && electron-builder --dir",
+    "desktop:dist": "npm run assets:icons && npm run desktop:build:frontend && npm run desktop:build:backend && electron-builder",
+    "desktop:dist:win": "npm run assets:icons && npm run desktop:build:frontend && node desktop/scripts/build-backend.mjs --target win32:x64 && electron-builder --win nsis portable",
+    "desktop:dist:mac": "npm run assets:icons && npm run desktop:build:frontend && node desktop/scripts/build-backend.mjs --target darwin:x64 --target darwin:arm64 && electron-builder --mac dmg zip",
+    "desktop:dist:linux": "npm run assets:icons && npm run desktop:build:frontend && node desktop/scripts/build-backend.mjs --target linux:x64 --target linux:arm64 && electron-builder --linux AppImage deb tar.gz"
   },
   "devDependencies": {
     "electron": "^31.0.0",
@@ -49,22 +52,35 @@
       }
     ],
     "win": {
-      "icon": "build/icon.ico",
+      "icon": "icon.ico",
       "target": [
         "nsis",
         "portable"
       ]
     },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "installerSidebar": "installer/installerSidebar.bmp",
+      "uninstallerSidebar": "installer/uninstallerSidebar.bmp",
+      "installerIcon": "installerIcon.ico",
+      "uninstallerIcon": "uninstallerIcon.ico",
+      "installerHeaderIcon": "installerHeaderIcon.ico",
+      "license": "license.txt"
+    },
     "mac": {
-      "icon": "build/icon.png",
+      "icon": "icon.png",
       "target": [
         "dmg",
         "zip"
       ],
       "category": "public.app-category.developer-tools"
     },
+    "dmg": {
+      "background": "installer/background.png"
+    },
     "linux": {
-      "icon": "build/icons",
+      "icon": "icons",
       "target": [
         "AppImage",
         "deb",

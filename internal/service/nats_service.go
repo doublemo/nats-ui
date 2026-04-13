@@ -382,10 +382,15 @@ func (s *NATSService) ListBuckets(ctx context.Context, connectionID, keyword str
 			return nil, err
 		}
 
+		keys, err := kv.Keys()
+		if err != nil && !strings.Contains(err.Error(), "no keys found") {
+			return nil, err
+		}
+
 		items = append(items, models.BucketItem{
 			Name:    bucketName,
 			Storage: strings.ToLower(status.BackingStore()),
-			Values:  status.Values(),
+			Values:  uint64(len(keys)),
 			History: int64(status.History()),
 			Bytes:   uint64(status.Bytes()),
 		})

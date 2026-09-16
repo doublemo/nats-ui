@@ -40,6 +40,7 @@ const connections = ref([])
 const activeId = ref(getActiveConnectionId())
 const collapsed = ref(false)
 let unsubscribe
+const appIconUrl = import.meta.env.BASE_URL + 'favicon.png'
 const appVersion = __APP_VERSION__
 const copyrightNotice = __APP_COPYRIGHT__
 
@@ -119,7 +120,7 @@ onBeforeUnmount(() => {
     <el-container class="layout-shell" :class="shellClasses">
       <el-aside :width="collapsed ? '76px' : '240px'" class="sidebar">
         <div class="brand" :class="{ collapsed }">
-          <span class="brand-mark">N</span>
+          <img class="brand-mark" :src="appIconUrl" alt="NATS UI" />
           <div v-if="!collapsed" class="brand-copy">
             <span class="brand-text">NATS UI</span>
             <span class="brand-subtext">{{ runtimeLabel }}</span>

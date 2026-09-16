@@ -1,3 +1,5 @@
+$ErrorActionPreference = 'Stop'
+
 Add-Type -AssemblyName System.Drawing
 
 $root = Split-Path -Parent $PSScriptRoot
@@ -28,109 +30,62 @@ function New-RoundedRectPath([float]$x, [float]$y, [float]$width, [float]$height
   return $path
 }
 
+# A publisher fans out to three subscribers. Supersampling keeps small icons crisp.
 function Draw-Icon([int]$size, [string]$outPath) {
-  $bitmap = New-Object System.Drawing.Bitmap $size, $size
+  $renderSize = [Math]::Max(256, $size * 4)
+  $bitmap = New-Object System.Drawing.Bitmap $renderSize, $renderSize
   $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
   $graphics.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
-  $graphics.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
-  $graphics.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
   $graphics.Clear([System.Drawing.Color]::Transparent)
-
-  $padding = [float]($size * 0.06)
-  $radius = [float]($size * 0.22)
-  $card = New-RoundedRectPath $padding $padding ($size - 2 * $padding) ($size - 2 * $padding) $radius
-
+  $graphics.ScaleTransform(($renderSize / 100.0), ($renderSize / 100.0))
+  $card = New-RoundedRectPath 4 4 92 92 23
   $bgBrush = New-Object System.Drawing.Drawing2D.LinearGradientBrush(
-    ([System.Drawing.PointF]::new(0, 0)),
-    ([System.Drawing.PointF]::new($size, $size)),
-    (New-Color 255 9 25 46),
-    (New-Color 255 26 94 145)
+    ([System.Drawing.PointF]::new(10, 4)),
+    ([System.Drawing.PointF]::new(88, 96)),
+    (New-Color 255 111 87 242),
+    (New-Color 255 57 42 154)
   )
   $graphics.FillPath($bgBrush, $card)
-
-  $glowBrushTop = New-Object System.Drawing.SolidBrush (New-Color 74 96 217 255)
-  $graphics.FillEllipse($glowBrushTop, $size * 0.10, $size * 0.08, $size * 0.64, $size * 0.42)
-
-  $glowBrushTopInner = New-Object System.Drawing.SolidBrush (New-Color 120 110 236 255)
-  $graphics.FillEllipse($glowBrushTopInner, $size * 0.20, $size * 0.12, $size * 0.42, $size * 0.28)
-
-  $glowBrushBottom = New-Object System.Drawing.SolidBrush (New-Color 72 38 196 255)
-  $graphics.FillEllipse($glowBrushBottom, $size * 0.40, $size * 0.40, $size * 0.42, $size * 0.34)
-
-  $glowBrushBottomInner = New-Object System.Drawing.SolidBrush (New-Color 108 72 222 255)
-  $graphics.FillEllipse($glowBrushBottomInner, $size * 0.48, $size * 0.48, $size * 0.24, $size * 0.18)
-
-  $borderPen = New-Object System.Drawing.Pen((New-Color 62 194 232 255), [float]($size * 0.006))
-  $graphics.DrawPath($borderPen, $card)
-
-  $orbitPen = New-Object System.Drawing.Pen((New-Color 58 151 216 255), [float]($size * 0.016))
-  $orbitPen.StartCap = [System.Drawing.Drawing2D.LineCap]::Round
-  $orbitPen.EndCap = [System.Drawing.Drawing2D.LineCap]::Round
-  $graphics.DrawArc($orbitPen, $size * 0.22, $size * 0.14, $size * 0.5, $size * 0.34, 208, 108)
-  $graphics.DrawArc($orbitPen, $size * 0.34, $size * 0.44, $size * 0.42, $size * 0.28, 26, 108)
-
-  $shadowPen = New-Object System.Drawing.Pen((New-Color 75 5 14 28), [float]($size * 0.13))
-  $shadowPen.StartCap = [System.Drawing.Drawing2D.LineCap]::Round
-  $shadowPen.EndCap = [System.Drawing.Drawing2D.LineCap]::Round
-  $shadowPen.LineJoin = [System.Drawing.Drawing2D.LineJoin]::Round
-
-  $strokeBrush = New-Object System.Drawing.Drawing2D.LinearGradientBrush(
-    ([System.Drawing.PointF]::new($size * 0.22, $size * 0.18)),
-    ([System.Drawing.PointF]::new($size * 0.78, $size * 0.82)),
-    (New-Color 255 240 248 255),
-    (New-Color 255 101 235 255)
-  )
-  $strokePen = New-Object System.Drawing.Pen($strokeBrush, [float]($size * 0.11))
-  $strokePen.StartCap = [System.Drawing.Drawing2D.LineCap]::Round
-  $strokePen.EndCap = [System.Drawing.Drawing2D.LineCap]::Round
-  $strokePen.LineJoin = [System.Drawing.Drawing2D.LineJoin]::Round
-
-  $leftTop = [System.Drawing.PointF]::new($size * 0.30, $size * 0.25)
-  $leftBottom = [System.Drawing.PointF]::new($size * 0.30, $size * 0.74)
-  $rightTop = [System.Drawing.PointF]::new($size * 0.70, $size * 0.25)
-  $rightBottom = [System.Drawing.PointF]::new($size * 0.70, $size * 0.74)
-
-  $graphics.DrawLine($shadowPen, $leftBottom.X + $size * 0.018, $leftBottom.Y + $size * 0.018, $leftTop.X + $size * 0.018, $leftTop.Y + $size * 0.018)
-  $graphics.DrawLine($shadowPen, $leftTop.X + $size * 0.018, $leftTop.Y + $size * 0.018, $rightBottom.X + $size * 0.018, $rightBottom.Y + $size * 0.018)
-  $graphics.DrawLine($shadowPen, $rightBottom.X + $size * 0.018, $rightBottom.Y + $size * 0.018, $rightTop.X + $size * 0.018, $rightTop.Y + $size * 0.018)
-
-  $graphics.DrawLine($strokePen, $leftBottom, $leftTop)
-  $graphics.DrawLine($strokePen, $leftTop, $rightBottom)
-  $graphics.DrawLine($strokePen, $rightBottom, $rightTop)
-
-  $nodeBrush = New-Object System.Drawing.SolidBrush (New-Color 255 196 249 255)
-  $nodeGlow = New-Object System.Drawing.SolidBrush (New-Color 90 90 225 255)
-  $nodeRadius = [float]($size * 0.055)
-  $nodePositions = @(
-    [System.Drawing.PointF]::new($size * 0.24, $size * 0.20),
-    [System.Drawing.PointF]::new($size * 0.50, $size * 0.49),
-    [System.Drawing.PointF]::new($size * 0.76, $size * 0.79)
-  )
-
-  foreach ($point in $nodePositions) {
-    $graphics.FillEllipse($nodeGlow, $point.X - $nodeRadius * 1.28, $point.Y - $nodeRadius * 1.28, $nodeRadius * 2.56, $nodeRadius * 2.56)
-    $graphics.FillEllipse($nodeBrush, $point.X - $nodeRadius, $point.Y - $nodeRadius, $nodeRadius * 2, $nodeRadius * 2)
+  $routePen = New-Object System.Drawing.Pen((New-Color 255 247 248 255), 8)
+  $routePen.StartCap = [System.Drawing.Drawing2D.LineCap]::Round
+  $routePen.EndCap = [System.Drawing.Drawing2D.LineCap]::Round
+  $routePen.LineJoin = [System.Drawing.Drawing2D.LineJoin]::Round
+  $route = New-Object System.Drawing.Drawing2D.GraphicsPath
+  $route.AddLine(26, 50, 40, 50)
+  $route.AddBezier(40, 50, 52, 50, 48, 28, 63, 28)
+  $route.AddLine(63, 28, 73, 28)
+  $graphics.DrawPath($routePen, $route)
+  $route.Reset()
+  $route.AddLine(26, 50, 73, 50)
+  $graphics.DrawPath($routePen, $route)
+  $route.Reset()
+  $route.AddLine(26, 50, 40, 50)
+  $route.AddBezier(40, 50, 52, 50, 48, 72, 63, 72)
+  $route.AddLine(63, 72, 73, 72)
+  $graphics.DrawPath($routePen, $route)
+  $sourceBrush = New-Object System.Drawing.SolidBrush (New-Color 255 247 248 255)
+  $nodeBrush = New-Object System.Drawing.SolidBrush (New-Color 255 125 249 207)
+  $graphics.FillEllipse($sourceBrush, 16, 40, 20, 20)
+  foreach ($y in @(28, 50, 72)) {
+    $graphics.FillEllipse($nodeBrush, 66, ($y - 7), 14, 14)
   }
-
-  $bitmap.Save($outPath, [System.Drawing.Imaging.ImageFormat]::Png)
-
+  $output = New-Object System.Drawing.Bitmap $size, $size
+  $outputGraphics = [System.Drawing.Graphics]::FromImage($output)
+  $outputGraphics.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+  $outputGraphics.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
+  $outputGraphics.DrawImage($bitmap, 0, 0, $size, $size)
+  $output.Save($outPath, [System.Drawing.Imaging.ImageFormat]::Png)
+  $outputGraphics.Dispose()
+  $output.Dispose()
   $nodeBrush.Dispose()
-  $nodeGlow.Dispose()
-  $strokePen.Dispose()
-  $strokeBrush.Dispose()
-  $shadowPen.Dispose()
-  $orbitPen.Dispose()
-  $borderPen.Dispose()
-  $glowBrushBottomInner.Dispose()
-  $glowBrushBottom.Dispose()
-  $glowBrushTopInner.Dispose()
-  $glowBrushTop.Dispose()
+  $sourceBrush.Dispose()
+  $route.Dispose()
+  $routePen.Dispose()
   $bgBrush.Dispose()
   $card.Dispose()
   $graphics.Dispose()
   $bitmap.Dispose()
 }
-
 function Draw-InstallerPanel([int]$width, [int]$height, [string]$outPath) {
   $bitmap = New-Object System.Drawing.Bitmap $width, $height
   $graphics = [System.Drawing.Graphics]::FromImage($bitmap)

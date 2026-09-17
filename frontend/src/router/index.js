@@ -3,6 +3,8 @@ import Dashboard from '../views/Dashboard.vue'
 import JetStreamView from '../views/JetStreamView.vue'
 import KVManager from '../views/KVManager.vue'
 import ConnectionManager from '../views/ConnectionManager.vue'
+import MessagesView from '../views/MessagesView.vue'
+import MonitoringView from '../views/MonitoringView.vue'
 
 const routes = [
   { path: '/', redirect: '/dashboard' },
@@ -10,6 +12,8 @@ const routes = [
   { path: '/dashboard', component: Dashboard },
   { path: '/jetstream', component: JetStreamView },
   { path: '/kv', component: KVManager },
+  { path: '/messages', component: MessagesView },
+  { path: '/monitoring', component: MonitoringView },
 ]
 
 export default createRouter({

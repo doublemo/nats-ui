@@ -114,6 +114,7 @@ type SubjectState struct {
 }
 
 type ConsumerItem struct {
+	NumAckPending  int    `json:"numAckPending"`
 	Name           string `json:"name"`
 	Durable        string `json:"durable"`
 	AckPolicy      string `json:"ackPolicy"`

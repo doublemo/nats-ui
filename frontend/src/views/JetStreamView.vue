@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useI18n } from 'vue-i18n'
+import StreamTools from '../components/StreamTools.vue'
 import { batchDeleteStreams, createStream, deleteStream, getStreamDetail, getStreams, onConnectionChanged } from '../api/nats'
 
 const JETSTREAM_VIEW_STATE_KEY = 'nats-ui-jetstream-view-state'
@@ -19,6 +20,7 @@ const page = ref(1)
 const pageSize = ref(8)
 const keyword = ref('')
 let unsubscribe
+let detailGeneration = 0
 const form = reactive({
   name: '',
   subjects: '',
@@ -92,8 +94,10 @@ function persistViewState() {
 }
 
 async function selectStream(name) {
+  const current = ++detailGeneration
   selected.value = name
-  detail.value = await getStreamDetail(name)
+  const result = await getStreamDetail(name)
+  if (current === detailGeneration) detail.value = result
 }
 
 async function submitStream() {
@@ -142,17 +146,19 @@ async function removeSelectedStreams() {
 }
 
 onMounted(async () => {
-  await refreshData()
   unsubscribe = onConnectionChanged(async () => {
+    detailGeneration++
     selected.value = null
     detail.value = null
     selectedRows.value = []
     page.value = 1
     await refreshData()
   })
+  await refreshData()
 })
 
 onBeforeUnmount(() => {
+  detailGeneration++
   unsubscribe?.()
 })
 
@@ -229,6 +235,7 @@ watch(
         <span>{{ t('jetstream.detailsTitle') }}</span>
       </template>
       <template v-if="detail">
+        <StreamTools :stream="detail.stream.name" :consumers="detail.consumers" @refresh="selectStream(selected)" />
         <el-descriptions :column="2" border class="mb-16">
           <el-descriptions-item v-for="item in detailItems" :key="item.label" :label="item.label">
             {{ item.value }}

@@ -334,7 +334,7 @@ func (s *NATSService) GetStreamDetail(ctx context.Context, connectionID, name st
 		})
 	}
 
-	for consumer := range client.js.ConsumersInfo(name) {
+	for consumer := range client.js.ConsumersInfo(name, nats.Context(ctx)) {
 		detail.Consumers = append(detail.Consumers, models.ConsumerItem{
 			Name:           consumer.Name,
 			Durable:        consumer.Config.Durable,
@@ -344,6 +344,7 @@ func (s *NATSService) GetStreamDetail(ctx context.Context, connectionID, name st
 			Delivered:      consumer.Delivered.Consumer,
 			AckFloor:       consumer.AckFloor.Consumer,
 			NumRedelivered: uint64(consumer.NumRedelivered),
+			NumAckPending:  consumer.NumAckPending,
 		})
 	}
 

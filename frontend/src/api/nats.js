@@ -23,7 +23,7 @@ const http = axios.create({
 http.interceptors.request.use((config) => {
   const connectionId = getActiveConnectionId()
   if (connectionId) {
-    config.params = { ...(config.params || {}), connectionId }
+    config.params = { connectionId, ...(config.params || {}) }
   }
   return config
 })
@@ -157,3 +157,20 @@ export function deleteBucketEntry(bucket, key) {
 export function batchDeleteBucketEntries(bucket, keys) {
   return http.post(`/kv/buckets/${bucket}/entries/batch-delete`, { keys })
 }
+
+export function sendMessage(mode, payload, connectionId = getActiveConnectionId()) {
+  return http.post(`/messages/${mode}`, payload, { timeout: 35000, params: { connectionId } })
+}
+
+export function subscribeMessages(subject, queue) {
+  const url = new URL(`${API_BASE_URL}/messages/subscribe`, window.location.href)
+  url.searchParams.set('connectionId', getActiveConnectionId())
+  url.searchParams.set('subject', subject)
+  if (queue) url.searchParams.set('queue', queue)
+  return new EventSource(url)
+}
+
+export const createConsumer = (stream, payload) => http.post(`/streams/${encodeURIComponent(stream)}/consumers`, payload)
+export const deleteConsumer = (stream, name) => http.delete(`/streams/${encodeURIComponent(stream)}/consumers/${encodeURIComponent(name)}`)
+export const getStreamMessage = (stream, sequence) => http.get(`/streams/${encodeURIComponent(stream)}/messages/${sequence}`)
+export const getJetStreamAccount = () => http.get('/jetstream/account')

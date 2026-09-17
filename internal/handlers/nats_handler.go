@@ -37,6 +37,12 @@ func (h *NATSHandler) Register(router *gin.Engine) {
 
 		api.GET("/cluster/overview", h.GetClusterOverview)
 		api.GET("/cluster/node-detail", h.GetClusterNodeDetail)
+		api.POST("/messages/:mode", h.SendMessage)
+		api.GET("/messages/subscribe", h.SubscribeMessages)
+		api.GET("/jetstream/account", h.JetStreamAccount)
+		api.POST("/streams/:name/consumers", h.CreateConsumer)
+		api.DELETE("/streams/:name/consumers/:consumer", h.DeleteConsumer)
+		api.GET("/streams/:name/messages/:sequence", h.StreamMessage)
 
 		api.GET("/streams", h.ListStreams)
 		api.POST("/streams", h.CreateStream)

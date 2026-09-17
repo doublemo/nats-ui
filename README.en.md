@@ -101,3 +101,12 @@ Notes:
 - The Electron desktop app starts its embedded backend on a local loopback address. Connection configs and secret files are written to the Electron app data directory under the current system user, so they do not overwrite the repository `data/` directory.
 
 It is recommended to run the corresponding `desktop:dist:*` command directly on the target platform for the most reliable packaging result.
+
+## Messaging and operations monitoring
+
+- **Messages**: live Core NATS subscriptions with wildcards and optional queue groups, text/JSON publishing, custom headers, request/reply, and manual replies to message reply subjects. Subscriptions stop on navigation or connection changes. The browser keeps 200 messages with previews capped at 64 KiB each; binary payloads use Base64. Request timeout: 100–30000 ms.
+- **JetStream**: durable pull consumer creation/deletion, pending/ack-pending/redelivery metrics, and read-only stored-message inspection by sequence. Inspection does not advance consumer progress. New consumers use explicit acknowledgments.
+- **Monitoring**: inbound/outbound message and byte rates, 60-sample history, node CPU/memory, cumulative slow-consumer counts, connection backlog, JetStream account resources and API errors. Rates require two valid samples; topology changes and counter resets establish a new baseline.
+- Node metrics require reachable NATS HTTP monitoring endpoints (e.g. port 8222). JetStream metrics require JetStream and account permissions. Connection monitoring samples up to 256 connections per node; the backlog table shows the top 50 from those samples, not an exhaustive total.
+
+Validation: `npm --prefix frontend run build` and `go test ./...`. For integration tests, start a disposable JetStream server, set `NATS_TEST_URL`, and run `go test ./internal/service -run TestMessagingIntegration -v`. Tests create and clean up their own stream and consumer; use a test instance.

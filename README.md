@@ -101,3 +101,12 @@ npm run desktop:dist:linux
 - Electron 桌面端使用本机环回地址启动内置后端，连接配置与密钥文件会写入系统用户目录下的 Electron 应用数据目录，不会覆盖仓库里的 `data/`。
 
 建议在目标平台本机执行对应的 `desktop:dist:*` 命令来生成安装包，这样最稳妥。
+
+## 消息工作台与专业监控
+
+- **消息工作台**：Core NATS 实时订阅（支持 `*`、`>` 和 Queue Group）、文本/JSON 发布、自定义 Headers、Request/Reply 和对 Reply Subject 手动回复。切换连接或离开页面时自动停止订阅；最多保留 200 条，每条预览最多 64 KiB，非 UTF-8 内容以 Base64 展示。请求超时可设置为 100–30000 ms。
+- **JetStream**：保留 Stream 管理，新增持久化 Pull Consumer 创建/删除、待投递/待确认/重投递指标，以及按消息序号只读查看持久化消息。查看消息不会推进 Consumer 的消费进度。创建的 Consumer 使用 Explicit ACK。
+- **运行监控**：入站/出站消息和字节速率、最近 60 次采样趋势、节点 CPU/内存、慢消费者累计计数、连接积压、JetStream 账户资源及 API 错误计数。速率至少需要两次有效采样；节点变化和计数器重置会重建基线。
+- 节点指标需要配置可访问的 NATS HTTP 监控端口（例如 `8222`）；JetStream 数据需要服务器启用 JetStream 且账户有相应权限。连接监控当前每节点最多取 256 条，积压表显示样本中最高的 50 条，并非全量统计。
+
+验证命令：`npm --prefix frontend run build`、`go test ./...`。需要执行真实消息链路集成测试时，启动独立的临时 JetStream 服务器，将 `NATS_TEST_URL` 指向它，然后运行 `go test ./internal/service -run TestMessagingIntegration -v`。测试会创建并清理自己的 Stream 和 Consumer，请使用测试实例。

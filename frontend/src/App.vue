@@ -53,6 +53,8 @@ const runtime = computed(() => {
 })
 
 const currentView = computed(() => {
+  if (route.path === '/messages') return { title: locale.value === 'zh-CN' ? '消息工作台' : 'Messages', description: 'Core NATS · Publish / Subscribe · Request / Reply' }
+  if (route.path === '/monitoring') return { title: locale.value === 'zh-CN' ? '运行监控' : 'Monitoring', description: 'Throughput · Resources · JetStream · Connections' }
   const meta = VIEW_META[route.path] || VIEW_META['/dashboard']
   return {
     title: t(meta.titleKey),
@@ -139,6 +141,14 @@ onBeforeUnmount(() => {
             <el-icon><FolderOpened /></el-icon>
             <span>{{ t('layout.nav.jetstream') }}</span>
           </el-menu-item>
+          <el-menu-item index="/messages">
+            <el-icon><Connection /></el-icon>
+            <span>{{ locale === 'zh-CN' ? '消息工作台' : 'Messages' }}</span>
+          </el-menu-item>
+          <el-menu-item index="/monitoring">
+            <el-icon><DataAnalysis /></el-icon>
+            <span>{{ locale === 'zh-CN' ? '运行监控' : 'Monitoring' }}</span>
+          </el-menu-item>
           <el-menu-item index="/kv">
             <el-icon><Key /></el-icon>
             <span>{{ t('layout.nav.kv') }}</span>
@@ -171,7 +181,7 @@ onBeforeUnmount(() => {
                 <span class="view-pill">{{ runtimeLabel }}</span>
                 <span v-if="runtime.isElectron" class="view-pill">{{ platformLabel }}</span>
               </div>
-              <h1>{{ t('layout.header.title') }}</h1>
+              <h1>{{ currentView.title }}</h1>
               <p>{{ currentView.description }}</p>
             </div>
           </div>

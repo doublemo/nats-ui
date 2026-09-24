@@ -173,4 +173,5 @@ export function subscribeMessages(subject, queue) {
 export const createConsumer = (stream, payload) => http.post(`/streams/${encodeURIComponent(stream)}/consumers`, payload)
 export const deleteConsumer = (stream, name) => http.delete(`/streams/${encodeURIComponent(stream)}/consumers/${encodeURIComponent(name)}`)
 export const getStreamMessage = (stream, sequence) => http.get(`/streams/${encodeURIComponent(stream)}/messages/${sequence}`)
+export const getRecentStreamMessages = (stream) => http.get(`/streams/${encodeURIComponent(stream)}/messages/recent`)
 export const getJetStreamAccount = () => http.get('/jetstream/account')

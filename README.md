@@ -105,7 +105,8 @@ npm run desktop:dist:linux
 ## 消息工作台与专业监控
 
 - **消息工作台**：Core NATS 实时订阅（支持 `*`、`>` 和 Queue Group）、文本/JSON 发布、自定义 Headers、Request/Reply 和对 Reply Subject 手动回复。切换连接或离开页面时自动停止订阅；最多保留 200 条，每条预览最多 64 KiB，非 UTF-8 内容以 Base64 展示。请求超时可设置为 100–30000 ms。
-- **JetStream**：保留 Stream 管理，新增持久化 Pull Consumer 创建/删除、待投递/待确认/重投递指标，以及按消息序号只读查看持久化消息。查看消息不会推进 Consumer 的消费进度。创建的 Consumer 使用 Explicit ACK。
+- **JetStream**：保留 Stream 管理，新增持久化 Pull Consumer 创建/删除、待投递/待确认/重投递指标，以及按消息序号只读查看持久化消息。Stream 详情还显示最近 10 条消息，自动识别并格式化 JSON、文本和常见二进制格式；也可手动按 String、JSON、Base64→String 或 Base64→JSON 解析。二进制内容默认显示十六进制摘要。查看消息不会推进 Consumer 的消费进度。创建的 Consumer 使用 Explicit ACK。
+- **KV 管理**：详情区可单独刷新。点击条目可查看完整 Value、Revision 和更新时间；有效 JSON 会自动格式化，普通文本保持原样。
 - **运行监控**：入站/出站消息和字节速率、最近 60 次采样趋势、节点 CPU/内存、慢消费者累计计数、连接积压、JetStream 账户资源及 API 错误计数。速率至少需要两次有效采样；节点变化和计数器重置会重建基线。
 - 节点指标需要配置可访问的 NATS HTTP 监控端口（例如 `8222`）；JetStream 数据需要服务器启用 JetStream 且账户有相应权限。连接监控当前每节点最多取 256 条，积压表显示样本中最高的 50 条，并非全量统计。
 

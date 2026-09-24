@@ -89,8 +89,23 @@ func TestMessagingIntegration(t *testing.T) {
 	if stored.(map[string]interface{})["message"].(MessageRecord).Payload != "persisted" {
 		t.Fatal("stored payload mismatch")
 	}
+	for i := 0; i < 12; i++ {
+		if _, err := client.js.Publish(subject+".stored", []byte(fmt.Sprintf(`{"index":%d}`, i)), nats.Context(ctx)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := client.js.DeleteMsg(stream, ack.Sequence+1, nats.Context(ctx)); err != nil {
+		t.Fatal(err)
+	}
+	recent, err := service.RecentStreamMessages(ctx, "default", stream)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(recent) != 10 || recent[0].Sequence != ack.Sequence+12 || recent[9].Sequence != ack.Sequence+3 || recent[0].Type != "json" {
+		t.Fatalf("unexpected recent messages: %+v", recent)
+	}
 	consumer, err := client.js.ConsumerInfo(stream, "inspector", nats.Context(ctx))
-	if err != nil || consumer.NumPending != 1 || consumer.Delivered.Consumer != 0 {
+	if err != nil || consumer.NumPending != 12 || consumer.Delivered.Consumer != 0 {
 		t.Fatalf("inspector must not consume messages: %v %v", consumer, err)
 	}
 	if _, err = service.JetStreamAccount(ctx, "default"); err != nil {

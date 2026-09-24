@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useI18n } from 'vue-i18n'
+import { formatKvValue } from '../utils/formatKvValue'
 import {
   batchDeleteBucketEntries,
   batchDeleteBuckets,
@@ -26,6 +27,9 @@ const entries = ref([])
 const entryTotal = ref(0)
 const loading = ref(false)
 const refreshing = ref(false)
+const detailRefreshing = ref(false)
+const entryDetailVisible = ref(false)
+const selectedEntry = ref(null)
 const bucketDialog = ref(false)
 const entryDialog = ref(false)
 const bucketPage = ref(1)
@@ -51,6 +55,7 @@ const bucketHeader = computed(() =>
     name: selectedBucket.value || t('kv.noBucketSelected'),
   }),
 )
+const formattedEntryValue = computed(() => formatKvValue(selectedEntry.value?.value))
 
 restoreViewState()
 
@@ -103,6 +108,8 @@ async function loadEntries() {
   if (!selectedBucket.value) {
     entries.value = []
     entryTotal.value = 0
+    selectedEntry.value = null
+    entryDetailVisible.value = false
     return
   }
   loading.value = true
@@ -114,9 +121,34 @@ async function loadEntries() {
     })
     entries.value = data.items
     entryTotal.value = data.total
+    if (selectedEntry.value) {
+      selectedEntry.value = data.items.find((item) => item.key === selectedEntry.value.key) || null
+      if (!selectedEntry.value) entryDetailVisible.value = false
+    }
   } finally {
     loading.value = false
   }
+}
+
+async function refreshDetail() {
+  if (!selectedBucket.value || detailRefreshing.value) return
+  detailRefreshing.value = true
+  try {
+    await Promise.all([loadBuckets(), loadEntries()])
+  } catch (err) {
+    ElMessage.error(err.message)
+  } finally {
+    detailRefreshing.value = false
+  }
+}
+
+function viewEntry(row) {
+  selectedEntry.value = row
+  entryDetailVisible.value = true
+}
+
+function handleEntryRowClick(row, column) {
+  if (column.type !== 'selection' && column.label !== t('kv.actions')) viewEntry(row)
 }
 
 async function refreshData() {
@@ -208,6 +240,8 @@ function openEntryDialog(row) {
 }
 
 watch(selectedBucket, async () => {
+  selectedEntry.value = null
+  entryDetailVisible.value = false
   entryPage.value = 1
   selectedEntryRows.value = []
   await loadEntries()
@@ -256,6 +290,8 @@ watch(entryKeyword, async () => {
 onMounted(async () => {
   await refreshData()
   unsubscribe = onConnectionChanged(async () => {
+    selectedEntry.value = null
+    entryDetailVisible.value = false
     selectedBucket.value = ''
     entries.value = []
     selectedBucketRows.value = []
@@ -330,6 +366,7 @@ watch(
         <div class="card-header">
           <span>{{ bucketHeader }}</span>
           <div class="data-toolbar">
+            <el-button :loading="detailRefreshing" :disabled="!selectedBucket" @click="refreshDetail">{{ t('common.refresh') }}</el-button>
             <el-button type="danger" plain :disabled="!selectedBucket" @click="removeSelectedEntries">{{ t('kv.batchDelete') }}</el-button>
             <el-button type="primary" :disabled="!selectedBucket" @click="openEntryDialog()">{{ t('kv.createEntry') }}</el-button>
           </div>
@@ -343,16 +380,20 @@ watch(
         :disabled="!selectedBucket"
       />
 
-      <el-table :data="entries" stripe v-loading="loading" @selection-change="selectedEntryRows = $event">
+      <el-table :data="entries" stripe v-loading="loading" @selection-change="selectedEntryRows = $event" @row-click="handleEntryRowClick">
         <el-table-column type="selection" width="46" />
-        <el-table-column prop="key" :label="t('kv.entryKey')" min-width="180" />
-        <el-table-column prop="value" :label="t('kv.entryValue')" min-width="240" show-overflow-tooltip />
+        <el-table-column prop="key" :label="t('kv.entryKey')" min-width="180">
+          <template #default="{ row }"><el-link type="primary" @click.stop="viewEntry(row)">{{ row.key }}</el-link></template>
+        </el-table-column>
+        <el-table-column prop="value" :label="t('kv.entryValue')" min-width="240">
+          <template #default="{ row }"><el-link class="kv-value-link" @click.stop="viewEntry(row)">{{ row.value || '—' }}</el-link></template>
+        </el-table-column>
         <el-table-column prop="revision" :label="t('kv.revision')" width="100" />
         <el-table-column prop="createdAt" :label="t('kv.updatedAt')" width="180" />
         <el-table-column :label="t('kv.actions')" width="150">
           <template #default="{ row }">
-            <el-button text type="primary" @click="openEntryDialog(row)">{{ t('common.edit') }}</el-button>
-            <el-button text type="danger" @click="removeEntry(row.key)">{{ t('common.delete') }}</el-button>
+            <el-button text type="primary" @click.stop="openEntryDialog(row)">{{ t('common.edit') }}</el-button>
+            <el-button text type="danger" @click.stop="removeEntry(row.key)">{{ t('common.delete') }}</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -366,6 +407,19 @@ watch(
         />
       </div>
     </el-card>
+
+    <el-dialog v-model="entryDetailVisible" :title="t('kv.viewEntryTitle')" width="min(700px, 94vw)">
+      <template v-if="selectedEntry">
+        <el-descriptions :column="2" border class="mb-16">
+          <el-descriptions-item :label="t('kv.entryKey')">{{ selectedEntry.key }}</el-descriptions-item>
+          <el-descriptions-item :label="t('kv.revision')">{{ selectedEntry.revision }}</el-descriptions-item>
+          <el-descriptions-item :label="t('kv.updatedAt')">{{ selectedEntry.createdAt }}</el-descriptions-item>
+          <el-descriptions-item :label="t('kv.valueFormat')"><el-tag size="small" type="info">{{ formattedEntryValue.format }}</el-tag></el-descriptions-item>
+        </el-descriptions>
+        <div class="card-header"><strong>{{ t('kv.entryValue') }}</strong></div>
+        <pre class="payload-view kv-value-preview">{{ formattedEntryValue.text }}</pre>
+      </template>
+    </el-dialog>
 
     <el-dialog v-model="bucketDialog" :title="t('kv.createBucketDialogTitle')" width="520px">
       <el-form label-width="100px">

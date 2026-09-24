@@ -297,6 +297,8 @@ export default {
     noBucketSelected: 'None selected',
     entryKey: 'Key',
     entryValue: 'Value',
+    viewEntryTitle: 'View entry',
+    valueFormat: 'Value format',
     revision: 'Revision',
     updatedAt: 'Updated at',
     createBucketDialogTitle: 'Create bucket',

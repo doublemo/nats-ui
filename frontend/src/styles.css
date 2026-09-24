@@ -720,6 +720,14 @@ body, .layout-shell.is-electron { background: #f3f5f8; }
 .stream-tools { margin-bottom: 22px; padding-bottom: 20px; border-bottom: 1px solid #e5e9f0; }
 .data-toolbar > .el-input { flex: 1; min-width: 150px; }
 .warning-text { color: #b45309; font-weight: 600; }
+.stream-message-detail { padding: 6px 18px 18px; overflow-wrap: anywhere; }
+.stream-message-snippet { display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: #536178; }
+.message-format-viewer { margin-top: 12px; }
+.message-format-viewer .card-header { justify-content: flex-start; margin-bottom: 8px; }
+.message-format-select { width: 180px; }
+.kv-value-link { display: inline-flex; max-width: 100%; }
+.kv-value-link .el-link__inner { display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.kv-value-preview { min-height: 80px; margin: 0; }
 @media (max-width: 1200px) {
   .message-layout, .monitor-grid, .split-layout { grid-template-columns: minmax(0, 1fr); }
   .topbar-actions .connection-panel { display: none; }

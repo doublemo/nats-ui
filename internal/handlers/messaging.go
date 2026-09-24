@@ -99,6 +99,15 @@ func (h *NATSHandler) StreamMessage(c *gin.Context) {
 	writeSuccess(c, data)
 }
 
+func (h *NATSHandler) RecentStreamMessages(c *gin.Context) {
+	data, err := h.service.RecentStreamMessages(c.Request.Context(), connectionIDFromContext(c), c.Param("name"))
+	if err != nil {
+		writeError(c, 502, err)
+		return
+	}
+	writeSuccess(c, data)
+}
+
 func (h *NATSHandler) JetStreamAccount(c *gin.Context) {
 	data, err := h.service.JetStreamAccount(c.Request.Context(), connectionIDFromContext(c))
 	if err != nil {

@@ -1,9 +1,13 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/json"
+	"errors"
 	"fmt"
+	"mime"
 	"strings"
 	"time"
 	"unicode"
@@ -28,6 +32,91 @@ type MessageRecord struct {
 	Bytes     int         `json:"bytes"`
 	Truncated bool        `json:"truncated"`
 	Time      time.Time   `json:"time"`
+}
+
+type StoredMessagePreview struct {
+	Sequence    uint64      `json:"sequence"`
+	Subject     string      `json:"subject"`
+	Time        time.Time   `json:"time"`
+	Bytes       int         `json:"bytes"`
+	Type        string      `json:"type"`
+	ContentType string      `json:"contentType,omitempty"`
+	Preview     string      `json:"preview"`
+	RawBase64   string      `json:"rawBase64"`
+	Truncated   bool        `json:"truncated"`
+	Headers     nats.Header `json:"headers"`
+}
+
+func storedMessagePreview(msg *nats.RawStreamMsg) StoredMessagePreview {
+	const maxPreview = 65536
+	data := msg.Data
+	truncated := len(data) > maxPreview
+	if truncated {
+		data = data[:maxPreview]
+	}
+	contentType := msg.Header.Get("Content-Type")
+	mediaType, _, _ := mime.ParseMediaType(contentType)
+	result := StoredMessagePreview{
+		Sequence: msg.Sequence, Subject: msg.Subject, Time: msg.Time,
+		Bytes: len(msg.Data), ContentType: contentType, Headers: msg.Header, Truncated: truncated,
+		RawBase64: base64.StdEncoding.EncodeToString(data),
+	}
+	if len(msg.Data) == 0 {
+		result.Type = "empty"
+		return result
+	}
+	binaryType := ""
+	switch {
+	case strings.HasPrefix(mediaType, "image/"):
+		binaryType = mediaType
+	case len(data) >= 4 && string(data[:4]) == "%PDF":
+		binaryType = "pdf"
+	case len(data) >= 2 && data[0] == 0x1f && data[1] == 0x8b:
+		binaryType = "gzip"
+	case len(data) >= 4 && string(data[:4]) == "PK\x03\x04":
+		binaryType = "zip"
+	case len(data) >= 8 && string(data[:8]) == "\x89PNG\r\n\x1a\n":
+		binaryType = "image/png"
+	case len(data) >= 3 && data[0] == 0xff && data[1] == 0xd8 && data[2] == 0xff:
+		binaryType = "image/jpeg"
+	case mediaType == "application/pdf" || mediaType == "application/zip" || mediaType == "application/gzip":
+		binaryType = strings.TrimPrefix(mediaType, "application/")
+	}
+	if binaryType == "" && !truncated && json.Valid(data) {
+		var formatted bytes.Buffer
+		if err := json.Indent(&formatted, data, "", "  "); err == nil {
+			result.Type, result.Preview = "json", formatted.String()
+			return result
+		}
+	}
+	if binaryType == "" && utf8.Valid(data) && mediaType != "application/octet-stream" && !strings.HasPrefix(mediaType, "audio/") && !strings.HasPrefix(mediaType, "video/") && !hasBinaryControls(data) {
+		result.Type, result.Preview = "text", string(data)
+		if mediaType == "application/xml" || mediaType == "text/xml" || strings.HasPrefix(strings.TrimSpace(result.Preview), "<?xml") {
+			result.Type = "xml"
+		} else if mediaType == "text/html" {
+			result.Type = "html"
+		}
+		return result
+	}
+	result.Type = binaryType
+	if result.Type == "" {
+		result.Type = "binary"
+	}
+	limit := len(data)
+	if limit > 64 {
+		limit = 64
+	}
+	result.Preview = fmt.Sprintf("% X", data[:limit])
+	return result
+}
+
+func hasBinaryControls(data []byte) bool {
+	for _, value := range data {
+		if value < 0x20 && value != '\n' && value != '\r' && value != '\t' {
+			return true
+		}
+	}
+	return false
 }
 
 func validSubject(subject string, wildcard bool) bool {
@@ -198,7 +287,38 @@ func (s *NATSService) StreamMessage(ctx context.Context, id, stream string, sequ
 	}
 	record := messageRecord(&nats.Msg{Subject: msg.Subject, Data: msg.Data, Header: msg.Header})
 	record.Time = msg.Time
-	return map[string]interface{}{"sequence": msg.Sequence, "message": record}, nil
+	return map[string]interface{}{"sequence": msg.Sequence, "message": record, "preview": storedMessagePreview(msg)}, nil
+}
+
+func (s *NATSService) RecentStreamMessages(ctx context.Context, id, stream string) ([]StoredMessagePreview, error) {
+	_, client, err := s.manager.Resolve(id)
+	if err != nil {
+		return nil, err
+	}
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	info, err := client.js.StreamInfo(stream, nats.Context(ctx))
+	if err != nil {
+		return nil, err
+	}
+	items := make([]StoredMessagePreview, 0, 10)
+	if info.State.Msgs == 0 {
+		return items, nil
+	}
+	for sequence := info.State.LastSeq; sequence >= info.State.FirstSeq && len(items) < 10; sequence-- {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		msg, err := client.js.GetMsg(stream, sequence, nats.Context(ctx))
+		if errors.Is(err, nats.ErrMsgNotFound) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, storedMessagePreview(msg))
+	}
+	return items, nil
 }
 
 func (s *NATSService) JetStreamAccount(ctx context.Context, id string) (interface{}, error) {

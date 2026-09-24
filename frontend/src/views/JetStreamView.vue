@@ -3,11 +3,13 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useI18n } from 'vue-i18n'
 import StreamTools from '../components/StreamTools.vue'
-import { batchDeleteStreams, createStream, deleteStream, getStreamDetail, getStreams, onConnectionChanged } from '../api/nats'
+import MessageContentPreview from '../components/MessageContentPreview.vue'
+import { batchDeleteStreams, createStream, deleteStream, getRecentStreamMessages, getStreamDetail, getStreams, onConnectionChanged } from '../api/nats'
 
 const JETSTREAM_VIEW_STATE_KEY = 'nats-ui-jetstream-view-state'
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
+const tr = (zh, en) => locale.value === 'zh-CN' ? zh : en
 const streams = ref([])
 const total = ref(0)
 const loading = ref(false)
@@ -15,6 +17,10 @@ const refreshing = ref(false)
 const selected = ref(null)
 const selectedRows = ref([])
 const detail = ref(null)
+const detailRefreshing = ref(false)
+const recentMessages = ref([])
+const recentLoading = ref(false)
+const recentError = ref('')
 const dialogVisible = ref(false)
 const page = ref(1)
 const pageSize = ref(8)
@@ -75,7 +81,7 @@ function restoreViewState() {
     page.value = saved.page || 1
     pageSize.value = saved.pageSize || 8
     keyword.value = saved.keyword || ''
-    selected.value = saved.selected || null
+    selected.value = saved.selected?.startsWith('KV_') ? null : saved.selected || null
   } catch {
     window.localStorage.removeItem(JETSTREAM_VIEW_STATE_KEY)
   }
@@ -95,9 +101,46 @@ function persistViewState() {
 
 async function selectStream(name) {
   const current = ++detailGeneration
+  if (selected.value !== name) {
+    detail.value = null
+    recentMessages.value = []
+  }
   selected.value = name
-  const result = await getStreamDetail(name)
-  if (current === detailGeneration) detail.value = result
+  recentError.value = ''
+  recentLoading.value = true
+  let result
+  try {
+    result = await getStreamDetail(name)
+  } catch (err) {
+    if (current === detailGeneration) {
+      recentLoading.value = false
+      recentError.value = err.message
+      ElMessage.error(err.message)
+    }
+    return
+  }
+  if (current !== detailGeneration) return
+  detail.value = result
+  try {
+    const messages = await getRecentStreamMessages(name)
+    if (current === detailGeneration) recentMessages.value = messages
+  } catch (err) {
+    if (current === detailGeneration) recentError.value = err.message
+  } finally {
+    if (current === detailGeneration) recentLoading.value = false
+  }
+}
+
+async function refreshDetail() {
+  if (!selected.value || detailRefreshing.value) return
+  detailRefreshing.value = true
+  try {
+    await selectStream(selected.value)
+  } catch (err) {
+    ElMessage.error(err.message)
+  } finally {
+    detailRefreshing.value = false
+  }
 }
 
 async function submitStream() {
@@ -118,8 +161,10 @@ async function removeStream(name) {
   await deleteStream(name)
   ElMessage.success(t('jetstream.messagesText.deletedSuccess'))
   if (selected.value === name) {
+    detailGeneration++
     selected.value = null
     detail.value = null
+    recentMessages.value = []
   }
   await loadStreams()
 }
@@ -137,8 +182,10 @@ async function removeSelectedStreams() {
   const names = selectedRows.value.map((row) => row.name)
   const result = await batchDeleteStreams(names)
   if (names.includes(selected.value)) {
+    detailGeneration++
     selected.value = null
     detail.value = null
+    recentMessages.value = []
   }
   selectedRows.value = []
   await loadStreams()
@@ -150,6 +197,9 @@ onMounted(async () => {
     detailGeneration++
     selected.value = null
     detail.value = null
+    recentMessages.value = []
+    recentError.value = ''
+    recentLoading.value = false
     selectedRows.value = []
     page.value = 1
     await refreshData()
@@ -232,7 +282,10 @@ watch(
 
     <el-card shadow="never" class="split-main">
       <template #header>
-        <span>{{ t('jetstream.detailsTitle') }}</span>
+        <div class="card-header">
+          <span>{{ t('jetstream.detailsTitle') }}</span>
+          <el-button :loading="detailRefreshing" :disabled="!selected" @click="refreshDetail">{{ t('common.refresh') }}</el-button>
+        </div>
       </template>
       <template v-if="detail">
         <StreamTools :stream="detail.stream.name" :consumers="detail.consumers" @refresh="selectStream(selected)" />
@@ -241,6 +294,33 @@ watch(
             {{ item.value }}
           </el-descriptions-item>
         </el-descriptions>
+
+        <el-card shadow="never" class="mb-16">
+          <template #header>
+            <div class="card-header">
+              <span>{{ tr('最近 10 条消息', 'Latest 10 messages') }}</span>
+              <span class="table-tip">{{ tr('只读预览 · 按序号倒序', 'Read-only preview · newest first') }}</span>
+            </div>
+          </template>
+          <el-alert v-if="recentError" :title="recentError" type="warning" :closable="false" class="mb-16" />
+          <el-table :data="recentMessages" v-loading="recentLoading" row-key="sequence" max-height="420">
+            <el-table-column type="expand" width="42">
+              <template #default="{ row }">
+                <div class="stream-message-detail">
+                  <div class="card-header"><strong class="mono">#{{ row.sequence }} · {{ row.subject }}</strong><el-tag size="small">{{ row.type.toUpperCase() }}</el-tag></div>
+                  <p class="table-tip">{{ new Date(row.time).toLocaleString() }} · {{ row.bytes }} bytes<span v-if="row.contentType"> · {{ row.contentType }}</span><span v-if="row.truncated"> · {{ tr('预览已截断', 'Preview truncated') }}</span></p>
+                  <MessageContentPreview :message="row" />
+                  <details><summary>Headers</summary><pre class="payload-view">{{ JSON.stringify(row.headers || {}, null, 2) }}</pre></details>
+                </div>
+              </template>
+            </el-table-column>
+            <el-table-column prop="sequence" label="#" width="80" />
+            <el-table-column prop="subject" label="Subject" min-width="180" show-overflow-tooltip />
+            <el-table-column :label="tr('类型', 'Type')" width="110"><template #default="{ row }"><el-tag size="small" type="info">{{ row.type }}</el-tag></template></el-table-column>
+            <el-table-column :label="tr('内容预览', 'Preview')" min-width="180" show-overflow-tooltip><template #default="{ row }"><span class="stream-message-snippet mono">{{ row.preview || '—' }}</span></template></el-table-column>
+            <el-table-column :label="tr('时间', 'Time')" width="155"><template #default="{ row }">{{ new Date(row.time).toLocaleString() }}</template></el-table-column>
+          </el-table>
+        </el-card>
 
         <el-card shadow="never" class="mb-16">
           <template #header>

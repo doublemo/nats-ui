@@ -211,6 +211,10 @@ func (s *NATSService) ListStreams(ctx context.Context, connectionID, keyword str
 	keyword = strings.ToLower(strings.TrimSpace(keyword))
 
 	for name := range names {
+		// NATS KeyValue buckets are implemented as KV_ streams. They belong in the KV manager.
+		if strings.HasPrefix(name, "KV_") {
+			continue
+		}
 		info, err := client.js.StreamInfo(name)
 		if err != nil {
 			return nil, err
@@ -352,11 +356,6 @@ func (s *NATSService) GetStreamDetail(ctx context.Context, connectionID, name st
 }
 
 func (s *NATSService) ListBuckets(ctx context.Context, connectionID, keyword string, page, pageSize int) (*models.BucketListResponse, error) {
-	streams, err := s.ListStreams(ctx, connectionID, "", 1, 100000)
-	if err != nil {
-		return nil, err
-	}
-
 	_, client, err := s.manager.Resolve(connectionID)
 	if err != nil {
 		return nil, err
@@ -364,12 +363,12 @@ func (s *NATSService) ListBuckets(ctx context.Context, connectionID, keyword str
 
 	items := make([]models.BucketItem, 0)
 	keyword = strings.ToLower(strings.TrimSpace(keyword))
-	for _, stream := range streams.Items {
-		if !strings.HasPrefix(stream.Name, "KV_") {
+	for streamName := range client.js.StreamNames() {
+		if !strings.HasPrefix(streamName, "KV_") {
 			continue
 		}
 
-		bucketName := strings.TrimPrefix(stream.Name, "KV_")
+		bucketName := strings.TrimPrefix(streamName, "KV_")
 		if keyword != "" && !strings.Contains(strings.ToLower(bucketName), keyword) {
 			continue
 		}

@@ -105,7 +105,8 @@ It is recommended to run the corresponding `desktop:dist:*` command directly on 
 ## Messaging and operations monitoring
 
 - **Messages**: live Core NATS subscriptions with wildcards and optional queue groups, text/JSON publishing, custom headers, request/reply, and manual replies to message reply subjects. Subscriptions stop on navigation or connection changes. The browser keeps 200 messages with previews capped at 64 KiB each; binary payloads use Base64. Request timeout: 100–30000 ms.
-- **JetStream**: durable pull consumer creation/deletion, pending/ack-pending/redelivery metrics, and read-only stored-message inspection by sequence. Inspection does not advance consumer progress. New consumers use explicit acknowledgments.
+- **JetStream**: durable pull consumer creation/deletion, pending/ack-pending/redelivery metrics, and read-only stored-message inspection by sequence. Stream details show the 10 most recent messages, with formatted JSON/text and hexadecimal previews for common binary formats. The viewer also offers String, JSON, Base64→String and Base64→JSON parsing. Inspection does not advance consumer progress. New consumers use explicit acknowledgments.
+- **KV manager**: refresh the detail pane independently. Click an entry to inspect its full value, revision, and update time. Valid JSON is formatted automatically; other text is shown unchanged.
 - **Monitoring**: inbound/outbound message and byte rates, 60-sample history, node CPU/memory, cumulative slow-consumer counts, connection backlog, JetStream account resources and API errors. Rates require two valid samples; topology changes and counter resets establish a new baseline.
 - Node metrics require reachable NATS HTTP monitoring endpoints (e.g. port 8222). JetStream metrics require JetStream and account permissions. Connection monitoring samples up to 256 connections per node; the backlog table shows the top 50 from those samples, not an exhaustive total.
 

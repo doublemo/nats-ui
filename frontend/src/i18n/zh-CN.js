@@ -297,6 +297,8 @@ export default {
     noBucketSelected: '未选择',
     entryKey: 'Key',
     entryValue: 'Value',
+    viewEntryTitle: '查看键值',
+    valueFormat: '内容格式',
     revision: 'Revision',
     updatedAt: '更新时间',
     createBucketDialogTitle: '创建 Bucket',
